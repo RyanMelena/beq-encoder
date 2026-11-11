@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # A push to the default branch runs this through the publish workflow, where the run is worth finishing.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    # The image's Debian release and Python: the tests compare decodes sample by sample,
+    # so they need the ffmpeg and mkvtoolnix that the image ships.
+    container: python:3.13-slim-trixie
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install ffmpeg and mkvtoolnix
+        run: apt-get update && apt-get install -y --no-install-recommends ffmpeg mkvtoolnix mediainfo
+
+      - name: Install
+        run: pip install -e '.[test]'
+
+      # truehdd, dee_shim, DEE and the designer are all faked by the tests.
+      - name: Test
+        run: python -m pytest -q
+
+  image:
+    name: Build image
+    # The publish workflow builds and pushes the image, so this job covers pull requests,
+    # and CI started by hand, which is how tooling-updates.yml checks the PRs it opens.
+    # (Called from publish, github.workflow is the caller's name.)
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.workflow == 'CI')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

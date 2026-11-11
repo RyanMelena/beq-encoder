@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Built in the image's cavern stage against Cavern.Format at a pinned commit
+       (Dockerfile: CAVERN_COMMIT), cloned to ../Cavern. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>cavern-dump</AssemblyName>
+    <Nullable>disable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Cavern/Cavern.Format/Cavern.Format.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}BEQ Encoder{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/"><span class="dot"></span>BEQ Encoder</a>
+  <nav>
+    {% set path = request.url.path %}
+    {% set tab = tab|default('jobs' if path.startswith('/jobs') else 'library' if path in ('/', '/scan') or path.startswith('/media') else '') %}
+    <a href="/"{% if tab == 'library' %} class="on" aria-current="page"{% endif %}>Library</a>
+    <a href="/jobs"{% if tab == 'jobs' %} class="on" aria-current="page"{% endif %}>Jobs <span id="active-count" class="pill" title="Jobs queued, running or awaiting approval" hidden></span></a>
+  </nav>
+  <span class="ver">v{{ version }}</span>
+</header>
+<main>
+{% set d = dee() %}{% if not d.ok %}<section class="status warn">DEE problem: {{ d.problems|join(' · ') }}</section>{% endif %}
+{% set ds = designer_status() %}{% if not ds.ok %}<section class="status warn">Automatic designer problem: {{ ds.problems|join(' · ') }}</section>{% endif %}
+{% block body %}{% endblock %}
+</main>
+<script>
+function setBadge(b, j) {
+  b.className = `badge s-${j.status}`;
+  b.dataset.sym = j.status_symbol;
+  b.textContent = j.status_label;
+}
+function progHTML(j) {
+  if (j.status !== 'running') return j.stage_note ? `<span class="muted small">${j.stage_note}</span>` : '';
+  const p = j.percent == null ? null : Math.round(j.percent * 10) / 10;
+  return `<div class="meter ${p == null ? 'indet' : ''}"><i style="width:${p ?? 100}%"></i></div>`
+       + `<div class="small">${j.stage_label || ''}${p == null ? '' : ' · ' + p + '%'}</div>`;
+}
+async function refreshActive() {
+  try {
+    const r = await fetch('/api/jobs?active=1'); const j = await r.json();
+    const el = document.getElementById('active-count');
+    el.hidden = j.length === 0; el.textContent = `${j.length} active`;
+  } catch (e) {}
+}
+refreshActive(); setInterval(refreshActive, 5000);
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

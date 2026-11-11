@@ -1,0 +1,75 @@
+# BEQ Encoder — example compose.yaml. Put it next to a .env copied from .env.example.
+# Site-specific values come from .env as ${...}; lines marked CHANGE-ME may need editing.
+#
+# Two services, modelled on beqdesigner's docker/compose.example.yaml:
+#   beqforge-designer  designs a BEQ when the catalogue has none for a film's track.
+#                      Reachable by the encoder only (expose, no ports).
+#   beq-encoder        web UI, job queue, catalogue, DEE (through dee_shim), remux.
+# Both see the same work directory at /work: the encoder writes each film's 1 kHz
+# analysis there and sends the designer file references, not the audio itself.
+
+services:
+  beqforge-designer:
+    # Pin the version: designs from one build stay comparable, and the BEQ track name
+    # records it (e.g. "BEQ TrueHD Atmos (beqforge 0.3.3 flatten)").
+    image: ghcr.io/3ll3d00d/beqforge-designer:${BEQFORGE_VERSION:-0.3.3}
+    container_name: beqforge-designer
+    user: "${PUID:-1000}:${PGID:-1000}"      # same user as the encoder: shares /work
+    restart: unless-stopped
+    environment:
+      BEQFORGE_SHARED_ROOT: /work            # arrays by reference (contract 1.2)
+      BEQFORGE_CACHE_DIR: /cache
+      BEQFORGE_RECORD_DIR: /records
+      BEQFORGE_WORKERS: ${BEQFORGE_WORKERS:-1}
+      # any other `beqforge serve-designer` option as BEQFORGE_<OPTION>
+    volumes:
+      - ${WORK_DIR:?set WORK_DIR in .env}:/work
+      - ./designer-cache:/cache              # stage cache: a redesign skips the analysis
+      - ./designer-records:/records          # one run record per design
+    expose:
+      - "8420"
+    networks:
+      - beq
+
+  beq-encoder:
+    image: ghcr.io/ryanmelena/beq-encoder:latest
+    # Build from a checkout instead of pulling the published image.
+    # build: .
+    container_name: beq-encoder
+    user: "${PUID:-1000}:${PGID:-1000}"      # set in .env: owner of your media files
+    restart: unless-stopped
+    depends_on:
+      - beqforge-designer
+    environment:
+      TZ: ${TZ:-UTC}
+      # The DEE 6.7 folder as seen inside the container. The host folder is mounted at
+      # the same path below, so one .env value drives both.
+      DEE_PATH: ${DEE_PATH:?set DEE_PATH in .env}
+      MEDIA_ROOTS: /media/movies             # colon-separated list of mounted roots
+      DESIGNER_URL: http://beqforge-designer:8420
+      TARGET_PEAK_DBFS: "-1.0"               # auto gain keeps the filtered peak at/below this
+      MAX_CONCURRENT_JOBS: "1"
+      # BM_CROSSOVER_HZ: "80"                # sub feed model sent to the designer (0 = none)
+      # BM_LPF_POSITION: Before
+      # BM_HEADROOM: WCS
+      # ANALYSIS_CACHE_GB: "20"              # 1 kHz analyses kept under /work/analysis
+      # TRACK_NAME_TEMPLATE: "BEQ {codec} ({source})"   # {orig} {codec} {source} {author}
+      # BEQ_TRACK_DEFAULT: "false"
+      # KEEP_WORK: "false"                   # keep DAMF/WAV/MLP intermediates for debugging
+      # SCAN_INTERVAL_HOURS: "24"            # scheduled library scan (start-up scan too)
+      # WATCH: inotify                       # new files in a local bind mount: inotify | poll | off
+      # ASSESS_AUDIO: "true"                 # background roll-off screen of films without BEQ
+    volumes:
+      - ${DEE_PATH}:${DEE_PATH}:ro           # DEE 6.7 with the dthd-mac2linux dee_dthd_encoder
+      - ./config:/config                     # sqlite db, logs, catalogue cache
+      - ${WORK_DIR}:/work                    # DAMF/WAV intermediates + analyses (fast local disk)
+      - ${MEDIA_DIR:?set MEDIA_DIR in .env}:/media/movies   # read-write: files are replaced in place
+    # The UI has no login and can rewrite media files: publish it only on a trusted
+    # network, or put it behind a reverse proxy that restricts access.
+    ports:
+      - "8080:8080"                          # CHANGE-ME: host port (or "127.0.0.1:8080:8080")
+    networks:
+      - beq
+
+networks:
+  beq: {}                                    # encoder <-> designer only

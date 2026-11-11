@@ -1,0 +1,26 @@
+{%- set a = r.a or {} -%}
+{%- if r.problem -%}
+  {{ state_pill(r.problem.state) }}
+  <div>{{ r.problem.what }}</div>
+  <div class="small"><b>Next:</b> {{ r.problem.next }}</div>
+  <details class="why"><summary>Original message</summary><code>{{ r.error }}</code></details>
+{%- elif r.has_beq and a.stale -%}
+  {{ state_pill('stale') }}
+  <div class="small"><b>{{ r.stale_help.verdict }}</b> {{ r.stale_help.advice }}</div>
+  <details class="why"><summary>Why</summary><ul class="reasons">
+  {%- for reason in a.reasons -%}
+    {%- set name, _, text = reason.partition(': ') -%}
+    <li>{% if text.startswith('made before ') %}Changed since this track was made: {{ text[12:] }}{% else %}{{ text }}{% endif %} <span class="muted">({{ name }})</span></li>
+  {%- endfor -%}
+  </ul></details>
+{%- elif r.has_beq -%}
+  {{ state_pill('current') }}
+  <div class="small muted">Nothing to do.</div>
+  {%- set notes = (a.beq or [])|map(attribute='notes')|sum(start=[]) -%}
+  {%- if notes -%}<details class="why"><summary>Notes</summary><ul class="reasons">{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul></details>{%- endif -%}
+{%- else -%}
+  {%- set v = r.verdict -%}
+  {{ state_pill(v.state, title=v.hint) }}
+  {%- if v.note %}<div class="small muted">{{ v.note }}</div>{% endif -%}
+  {%- if r.ro and r.ro.verdict == 'error' -%}<details class="why"><summary>Original message</summary><code>{{ r.ro.error }}</code></details>{%- endif -%}
+{%- endif -%}

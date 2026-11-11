@@ -1,0 +1,4 @@
+{% if j.status == 'running' %}
+<div class="meter {{ 'indet' if j.percent is none }}"><i style="width:{{ j.percent if j.percent is not none else 100 }}%"></i></div>
+<div class="small">{{ j.stage_label }}{% if j.percent is not none %} · {{ '%.1f'|format(j.percent) }}%{% endif %}</div>
+{% elif j.stage_note %}<span class="muted small">{{ j.stage_note }}</span>{% endif %}

@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}{{ film(m.title, m.year) or 'File' }} · BEQ Encoder{% endblock %}
+{% block body %}
+{% set film_title = film(m.title, m.year) or m.path.split('/')[-1] %}
+<p class="crumb"><a href="/">Library</a> / {{ film_title }}</p>
+<h1>{{ film_title }}
+  {% if m.edition %}<span class="tag">{{ m.edition }}</span>{% endif %}
+  {% if m.tmdb %}<span class="tag">{{ m.tmdb|tmdb }}</span>{% endif %}</h1>
+<p class="path whole muted">{{ m.path }}</p>
+
+{% set a = assessment %}
+{% set plan = plans[best.track_id] if best else none %}
+{% set has_beq = probe and probe.beq_tracks %}
+{% set last = jobs[0] if jobs else none %}
+{% set quiet = ((has_beq and a and not a.stale) or (a and a.catalogue == 'no_beq_needed') or (plan and not plan.ok)) and not failure %}
+{% macro headline(state, words) -%}
+  <h2 class="headline">{{ state_pill(state) }} {{ words }}</h2>
+{%- endmacro %}
+{% if active %}
+  {% set waiting = active.status == 'awaiting' %}
+  <section class="note outcome s-{{ active.status }}">
+    <div class="outcome-text"><h2 class="headline">{{ status_badge(active.status) }} {{ 'A filter is waiting for your approval' if waiting else 'A BEQ job is in progress for this film' }}</h2></div>
+    <div class="actions"><a class="btn{{ ' ghost' if not waiting }}" href="/jobs/{{ active.id }}">{{ 'Review the filters' if waiting else 'Open job #' ~ active.id }}</a></div>
+  </section>
+{% elif failure %}
+  <section class="note outcome s-failed film-fail">
+    <div class="outcome-text">
+      <h2 class="headline">{{ status_badge('failed') }} The last BEQ run failed</h2>
+      <p>{{ failure.what }}</p>
+      <p class="advice">{{ failure.next }}</p>
+    </div>
+    <div class="actions"><a class="btn ghost" href="/jobs/{{ failure.job }}">Open job #{{ failure.job }}</a></div>
+  </section>
+{% endif %}
+{% set v = verdict %}
+{% set tone = ('s-stale' if a and a.stale else 's-current') if has_beq and a else '' %}
+<section class="assessment verdict {{ tone }}{{ ' behind' if active or failure }}">
+  {% if not probe %}
+    {{ headline(file_problem.state if file_problem else 'not_checked', "This file can't be used" if m.error else "This file hasn't been read yet") }}
+    {% if m.error %}<p class="bad">{{ m.error }}</p><p class="small muted">Fix or replace the file, then rescan it.</p>{% endif %}
+  {% elif has_beq and a %}
+    {% if a.stale %}
+    {{ headline('stale', "The BEQ in this file is out of date") }}
+    <p>{% if stale_matters %}<b>Worth replacing.</b> It still plays, but it may not sound as it should. Run BEQ again below and approve a filter to replace it.{% else %}<b>Optional to replace.</b> The BEQ in this file still works as it is. Run BEQ again below if you want the newer filter.{% endif %}</p>
+    {% else %}
+    {{ headline('current', "This film already has a BEQ") }}
+    {% endif %}
+    {% for b in a.beq %}
+    <p><b>{{ b.name }}</b> <span class="muted small">· {% if b.source == 'catalogue' %}From the BEQ Catalogue{% elif b.source == 'designer' %}From the automatic designer{% else %}Unknown source{% endif %}{% if b.label %} · {{ b.label }}{% endif %}</span>
+      {% if a.beq|length > 1 %}{{ state_pill('stale' if b.reasons else 'current') }}{% endif %}</p>
+    {% if b.reasons or b.notes %}<ul class="reasons small">
+      {% for x in b.plain_reasons %}<li class="warn-text">{{ x }}</li>{% endfor %}
+      {% for x in b.notes %}<li class="muted">{{ x[0]|upper ~ x[1:] }}</li>{% endfor %}
+    </ul>{% endif %}
+    {% if b.reasons or b.encoder %}<details class="why"><summary>Technical details</summary><ul class="reasons">{% for x in b.reasons %}<li>{{ x[0]|upper ~ x[1:] }}</li>{% endfor %}{% if b.encoder %}<li>Made with {{ b.encoder }}{% if b.revision %}, revision {{ b.revision }}{% endif %}</li>{% endif %}</ul></details>{% endif %}
+    {% endfor %}
+    {% if plan and not plan.ok %}<p class="small bad">Not supported: {{ plan.reason|plain }}</p>{% endif %}
+  {% else %}
+    {{ headline(v.state, v.headline) }}
+    {% if v.detail %}<p>{{ v.detail }}</p>{% endif %}
+    {% if v.state == 'unsupported' %}<p class="small muted">To add a BEQ, select a track below that lists a BEQ output, or replace the file with a copy that has a supported track.</p>{% endif %}
+    {% for n in notes %}<p class="note small">{{ n }}</p>{% endfor %}
+  {% endif %}
+
+  {% if a and not has_beq and a.best and a.best.supported and a.catalogue != 'no_beq_needed' and v.state != 'not_checked' %}
+    {% if rolloff %}
+    <p class="small">Bass check ({{ rolloff.track or a.best.label }}{% if rolloff.seconds %}, {{ rolloff.seconds }} s sampled{% endif %}):
+      {% if rolloff.verdict == 'clear' %}<b>Roll-off.</b> The peak level falls away below ~{{ '%.0f'|format(rolloff.corner_hz) }} Hz, {{ '%.0f'|format(rolloff.depth15_db) }} dB down at 15 Hz (steepest {{ '%.0f'|format(rolloff.slope_db_oct) }} dB/octave at {{ '%.0f'|format(rolloff.slope_at_hz) }} Hz). That is typical of a mastering high-pass; designing a filter will confirm it.
+      {% elif rolloff.verdict == 'some' %}<b>Some roll-off</b> below ~{{ '%.0f'|format(rolloff.corner_hz or 0) }} Hz ({{ '%.0f'|format(rolloff.depth15_db) }} dB down at 15 Hz).
+      {% elif rolloff.verdict == 'none' %}<b>No roll-off.</b> Peak level at 15 Hz is within {{ '%.0f'|format(rolloff.depth15_db|abs) }} dB of the 40–80 Hz plateau.
+      {% elif rolloff.verdict == 'unknown' %}<b>Too little bass</b> to judge.
+      {% else %}<b>Could not run.</b> <span class="muted">{{ rolloff.error }}</span>{% endif %}
+    </p>
+    {% else %}
+    <p class="small">Bass check: <b>Not checked yet.</b> <span class="muted">It runs in the background while no jobs are running.</span></p>
+    {% endif %}
+  {% endif %}
+</section>
+
+{% if probe %}
+<h2>Audio tracks</h2>
+{% if best %}<p class="small muted track-hint">Choose the track to add a BEQ to. The best track is already selected.</p>{% endif %}
+<form method="post" action="/media/{{ m.id }}/run" id="runform">
+<table class="list compact tracks">
+  <thead><tr><th>Use</th><th>ID</th><th>Format</th><th>Language</th><th>Name</th><th>Layout</th><th>BEQ output</th><th>Flags</th></tr></thead>
+  <tbody>
+  {% for a in probe.audio %}
+    {% set language = a.language|language %}
+    {% set note = a|layout_note %}
+    <tr>
+      <td class="pick{{ ' none' if not (a.pickable or a.extra) }}">{% if a.pickable or a.extra %}<label><input type="radio" name="track_id" value="{{ a.track_id }}" {{ 'checked' if best and a.track_id == best.track_id }} aria-label="Use this track: {{ a.label }}{{ ', ' ~ language if language }}"><span class="use">Use this track</span></label>{% else %}{{ dash }}{% endif %}</td>
+      <td data-label="ID">{{ a.track_id }}</td>
+      <td class="lead">{{ a.kind_name }}{% if a.codec not in a.kind_name and a.codec.split()[0] != a.kind_name.split()[0] %} <span class="muted small">{{ a.codec }}</span>{% endif %}</td>
+      <td data-label="Language"{% if not language %} class="none"{% endif %}>{{ language or dash }}</td>
+      <td data-label="Name"{% if not a.name %} class="none"{% endif %}>{{ a.name or dash }}</td>
+      <td data-label="Layout">{{ a.layout_label }}{% if note or a.layout_assumed %} <span class="muted small">{{ note }}{{ ' (assumed)' if a.layout_assumed }}</span>{% endif %}{% if a.sample_rate and a.sample_rate != 48000 %} <span class="tag">{{ (a.sample_rate/1000)|round(1) }} kHz</span>{% endif %}</td>
+      {% set pl = plans[a.track_id] %}
+      <td data-label="BEQ output">{% if a.beq %}<span class="muted small">This is the BEQ track</span>{% elif pl.ok %}{{ pl.label }}{% else %}<span class="bad small" title="{{ pl.reason }}">Not supported</span>{% endif %}</td>
+      {% set flags %}
+        {%- if best and a.track_id == best.track_id %}<span class="tag">Best track</span> {% endif -%}
+        {%- if a.beq %}<span class="tag">BEQ</span> {% endif -%}
+        {%- if a.objects %}<span class="tag">Object-based</span> {% endif -%}
+        {%- if a.commentary %}<span class="tag">Commentary</span> {% endif -%}
+        {%- if a.descriptive %}<span class="tag">Descriptive</span> {% endif -%}
+        {%- if a.forced %}<span class="tag">Forced</span> {% endif -%}
+        {%- if a.default %}<span class="tag">Default</span> {% endif -%}
+        {%- if a.original %}<span class="tag">Original</span> {% endif -%}
+        {%- if a.delay_ms %}<span class="tag">{{ a.delay_ms }} ms delay</span>{% endif -%}
+      {% endset %}
+      <td data-label="Flags"{% if not flags|trim %} class="none"{% endif %}>{{ flags|trim or dash }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</form>
+{% endif %}
+
+<div class="actions film-actions">
+  {% if best %}
+  <label class="chk"><input form="runform" type="checkbox" name="force_designer"> Design a filter even if the catalogue has one</label>
+  <button form="runform" class="{{ 'ghost' if quiet }}" {{ 'disabled' if active }}>{{ 'Run BEQ again' if has_beq or failure else 'Run BEQ' }}</button>
+  {% endif %}
+  <form method="post" action="/media/{{ m.id }}/rescan" class="inline"><button class="ghost">Rescan file</button></form>
+</div>
+{% if best and not active %}<p class="small muted">Run BEQ looks for a filter for the track you selected. It checks the BEQ Catalogue first; if the catalogue has none, the automatic designer measures the track's bass and designs one. Nothing changes until you approve a filter.{% if has_beq %} Running it again makes a new BEQ track that replaces this film's current one when you approve it; you can choose to keep both at that step.{% endif %}</p>{% endif %}
+<p class="small muted">Rescan file reads the file again and updates its audio tracks and BEQ status on this page. It does not change the file.</p>
+{% if best %}
+<details class="add">
+  <summary>How the best track is chosen</summary>
+  <p class="small">Tracks are ranked by audio quality: lossless with objects first, then lossless, then lossy with objects, then lossy. Ties go to the track with more channels, then the original language, then the default flag. Commentary, descriptive and forced tracks are skipped.</p>
+  <p class="small">The new BEQ track is always TrueHD. It is checked sample by sample against the filtered source, and for TrueHD Atmos and DD+ Atmos every object's position is checked too. DD+ Atmos objects come from Cavern's decode of the lossy DD+ track. DTS:X is not supported, since it can't be converted without losing quality.</p>
+</details>
+{% endif %}
+
+{% if charted %}{% set c = charted.result.charts %}
+<h2>Before / after</h2>
+{% if chart_figures %}<p class="figures">{% for k, v in chart_figures %}<span>{{ k }} <b>{{ v }}</b></span>{% endfor %}</p>{% endif %}
+<p class="small muted">{{ charted.result.track_name }} · from <a href="/jobs/{{ charted.id }}">job #{{ charted.id }}</a> · saved in the file as <code>{{ c.names.spectrum }}</code> and <code>{{ c.names.heatmap }}</code></p>
+<div class="charts">
+  <a href="/jobs/{{ charted.id }}/charts/spectrum" target="_blank"><img src="/jobs/{{ charted.id }}/charts/spectrum" alt="Peak and average spectrum, original and BEQ"><span class="small">Peak and average spectrum · open full size</span></a>
+  <a href="/jobs/{{ charted.id }}/charts/heatmap" target="_blank"><img src="/jobs/{{ charted.id }}/charts/heatmap" alt="Bass over the running time, original and BEQ"><span class="small">Bass over the running time · open full size</span></a>
+</div>
+{% endif %}
+
+{% if jobs %}
+<h2>History</h2>
+<table class="list compact">
+  <thead><tr><th>Job</th><th>Status</th><th>Step</th><th>Filter</th><th>Created</th><th>Message</th></tr></thead>
+  <tbody>{% for j in jobs %}
+  <tr onclick="location='/jobs/{{ j.id }}'"><td class="lead"><a href="/jobs/{{ j.id }}">#{{ j.id }}</a></td>
+    <td class="state">{{ status_badge(j.status) }}</td>
+    <td data-label="Step">{{ j.phase_label }}</td>
+    <td data-label="Filter">{{ j.filter_label or dash }}</td>
+    <td data-label="Created">{{ j.created_at|t }}</td><td class="small wide" data-label="Message" title="{{ j.detail }}">{{ j.detail or dash }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% endif %}
+{% endblock %}

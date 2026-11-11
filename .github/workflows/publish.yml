@@ -1,0 +1,79 @@
+name: Publish image
+
+on:
+  push:
+    # Whichever of these is the repository's default branch also publishes :latest.
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Build and push
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # The app's version goes into every BEQ track's tags, so a release tag must match it.
+      - name: Check the tag matches the app version
+        if: github.ref_type == 'tag'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          app=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' app/beq_encoder/__init__.py)
+          pkg=$(sed -n 's/^version = "\(.*\)"$/\1/p' app/pyproject.toml)
+          if [ "$tag" != "$app" ] || [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match __version__ ($app) and pyproject.toml ($pkg)."
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          # GHCR names are lowercase, and the owner is not.
+          images: ghcr.io/ryanmelena/beq-encoder
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-,format=short,enable=${{ github.ref_type == 'branch' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/v') }}
+          # The image bundles Cavern, whose licence asks for credit and a link when it is used
+          # publicly, and dee_shim (Apache-2.0), modified by docker/dee-shim/*.patch.
+          labels: |
+            org.opencontainers.image.title=BEQ Encoder
+            org.opencontainers.image.description=Adds a bass-EQ (BEQ) copy of a film's best audio track to the same MKV. Includes Cavern by VoidXH (https://github.com/VoidXH/Cavern) and a patched dee_shim (https://github.com/truehdd/dee-shim).
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # A single-platform image keeps one manifest entry without a provenance attestation.
+          provenance: false

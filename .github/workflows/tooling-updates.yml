@@ -1,0 +1,38 @@
+name: Tooling updates
+
+# truehdd and dee_shim are pinned in the Dockerfile, where Dependabot can't see them.
+# Each week this opens a PR for a newer release of either, and starts CI on it.
+# Needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: tooling-updates
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: ${{ matrix.tool }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [truehdd, dee-shim]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Open a PR for a newer release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898299+github-actions[bot]@users.noreply.github.com'
+          bash .github/scripts/tooling-update.sh '${{ matrix.tool }}'

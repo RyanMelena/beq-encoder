@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} · BEQ Encoder{% endblock %}
+{% block body %}
+{% if crumb %}<p class="crumb"><a href="{{ crumb[1] }}">{{ crumb[0] }}</a> / {{ heading }}</p>{% endif %}
+<h1>{{ heading }}</h1>
+{% if requested %}<p class="path whole muted">{{ requested }}</p>{% endif %}
+<p>{{ message }}</p>
+<p>{{ next_step }}</p>
+<div class="actions">
+  {% for label, href in links %}<a class="btn{{ ' ghost' if not loop.first }}" href="{{ href }}">{{ label }}</a>
+  {% endfor %}
+</div>
+{% endblock %}

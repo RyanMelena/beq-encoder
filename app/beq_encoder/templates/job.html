@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}{{ j.film }} · Job #{{ j.id }} · BEQ Encoder{% endblock %}
+{% block body %}
+{% set prep = j.prepare %}
+{% set p = j.params %}
+{% set t = prep.track if prep else none %}
+{% set decide = j.status == 'awaiting' and prep %}
+{% macro action(a) %}
+{% if a.post %}<form method="post" action="/jobs/{{ j.id }}/{{ a.post }}" class="inline"><button class="{{ '' if a.primary else 'ghost' }}{{ ' danger' if a.danger }}">{{ a.label }}</button></form>
+{% else %}<a class="btn {{ '' if a.primary else 'ghost' }}" href="{{ a.href }}">{{ a.label }}</a>{% endif %}
+{% endmacro %}
+{% macro curve() %}
+<div class="col" id="curve">
+  <h3>Filter{% if chosen %}: {{ chosen.label }}{% endif %}</h3>
+  {% if svg %}{{ svg|safe }}{% elif overlay %}{{ overlay|safe }}{% else %}<p class="muted">Select a filter to see its curve here.</p>{% endif %}
+  {% if chosen and chosen.filters %}
+  <table class="list compact">
+    <thead><tr><th>Type</th><th class="num">Freq</th><th class="num">Gain</th><th class="num">Q</th><th class="num">Times applied</th></tr></thead>
+    <tbody>{% for f in chosen.filters %}{% set b = f|band %}<tr><td class="lead">{{ b.type }}</td><td class="num" data-label="Freq">{{ b.freq }}</td><td class="num" data-label="Gain">{{ b.gain }}</td><td class="num" data-label="Q">{{ b.q }}</td><td class="num" data-label="Times applied">{{ b.count }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</div>
+{% endmacro %}
+{% macro choice_table(items) %}
+<table class="list choices">
+  <thead><tr><th>Filter</th><th>Filter bands</th><th>Details</th></tr></thead>
+  <tbody>
+  {% for c in items %}{% set e = c.entry %}
+      <tr class="{{ 'off' if not c.selectable }}">
+        <td><label>
+          {% if c.selectable %}<input type="radio" name="digest" value="{{ e.digest }}" data-name="{{ e.label }}" {{ 'checked' if chosen and e.digest == chosen.digest }} required>{% else %}<input type="radio" disabled>{% endif %}
+          <span><b>{{ e.label }}</b>
+            <span class="group">{{ c.tag }}</span>{% if c.note %} <span class="small muted">· {{ c.note }}</span>{% endif %}
+            <br><span class="small muted">{% if e.origin == 'catalogue' %}{% if c.group in ('related', 'other', 'search') %}<b>{{ film(e.title, e.year) }}</b> · {% endif %}{{ e.audio_types|join(', ') }} · {{ e.source }}{% if e.edition %} · {{ e.edition }}{% endif %}{% else %}Designed for this track{% endif %}</span>
+            {% if e.digest == suggested %}<br><span class="small">Preselected: the first filter made for this exact track.</span>{% endif %}
+            <br><a class="small curve-link" href="?pick={{ e.digest }}&q={{ q|urlencode }}">Show curve</a>
+            {% if e.url %} · <a class="small" href="{{ e.url }}" target="_blank" rel="noopener">Catalogue entry</a>{% endif %}
+          </span></label></td>
+        <td class="filters wide" data-label="Filter bands">{% if e.filters %}<div class="bands">{% for f in e.filters %}{% set b = f|band %}<span>{{ b.type }}</span><span>{{ b.freq }}</span><span>{{ b.gain }}</span><span>Q {{ b.q }}</span><span>{% if b.count > 1 %}×{{ b.count }}{% endif %}</span>{% endfor %}</div>{% else %}<b>No filter bands</b><br>This track does not need BEQ{% endif %}</td>
+        <td class="wide" data-label="Details">
+          {% if e.origin == 'designer' %}
+            <dl class="kv facts">
+              <dt>Confidence</dt><dd>{% if e.confidence is not none %}{{ '%.0f'|format(e.confidence * 100) }} of 100{% else %}{{ dash }}{% endif %}</dd>
+              <dt>Gain reduction</dt><dd>{% if e.gain_reduction_db is none %}{{ dash }}{% elif e.gain_reduction_db|abs < 0.05 %}none needed{% else %}{{ e.gain_reduction_db|dbs }}{% endif %}</dd>
+              <dt>Average fit error</dt><dd>{% if e.residual_rms_db is not none %}{{ '%.1f'|format(e.residual_rms_db) }} dB{% else %}{{ dash }}{% endif %}</dd>
+              {% if e.channel_scope %}<dt>Channels</dt><dd>{{ e.channel_scope }}</dd>{% endif %}
+            </dl>
+            {% if e.rejection_reasons %}<ul class="comm bad">{% for r in e.rejection_reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
+            {% if e.commentary or e.method %}<details><summary>Commentary</summary><ul class="comm">{% if e.method %}<li><b>Method</b>: {{ e.method }}{% if e.strategy and e.strategy != e.method %}, {{ e.strategy }}{% endif %}</li>{% endif %}{% for k, v in (e.commentary or {}).items() %}<li><b>{{ k }}</b>: {{ v }}</li>{% endfor %}</ul></details>{% endif %}
+          {% else %}
+            <dl class="kv facts">
+              <dt>Author</dt><dd>{{ e.author }}</dd>
+              {% if e.mv and e.mv != '0' %}<dt>Volume offset</dt><dd>{{ e.mv }} dB</dd>{% endif %}
+            </dl>
+            {% if e.warning %}<div class="caution"><span class="badge warn" data-sym="⚠">Warning</span> {{ e.warning }}</div>{% endif %}
+            {% if e.note %}<div>{{ e.note }}</div>{% endif %}
+          {% endif %}
+        </td>
+      </tr>
+  {% else %}
+  <tr><td colspan="3" class="empty">Nothing to choose from yet. Search the catalogue below, or design a filter.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+<p class="crumb"><a href="/jobs">Jobs</a> / {% if j.media_id %}<a href="/media/{{ j.media_id }}">{{ j.film }}</a> / {% endif %}<span aria-current="page">Job #{{ j.id }}</span></p>
+<h1>{{ j.film }}</h1>
+<p class="jobsub">{{ status_badge(j.status, id="badge") }} <span class="muted">Job #{{ j.id }}{% if j.step_label %} · {{ j.step_label }}{% endif %}<span class="elapsed"> · Elapsed <span id="elapsed">{{ j.elapsed }}</span></span></span></p>
+<p class="path muted">{{ j.name }}</p>
+
+<section class="note outcome s-{{ j.status }}">
+  <div id="prog" class="jobprog">{% include "_progress.html" %}</div>
+  <div class="outcome-text">
+    <p id="msg">{{ j.detail }}</p>
+    <p id="eta" class="small muted">{{ j.progress_note }}</p>
+    {% if next.advice %}<p class="advice">{{ next.advice }}</p>{% endif %}
+    {% if j.status == 'failed' and j.log_path %}<p class="small err-link"><a id="err-link" href="#log-head">Go to the error line in the log</a></p>{% endif %}
+    {% if j.raw_detail %}<details class="why"><summary>Original message</summary><code>{{ j.raw_detail }}</code></details>{% endif %}
+  </div>
+  <div class="actions">{% for a in next.actions %}{{ action(a) }}{% endfor %}</div>
+</section>
+
+{% if decide %}
+<form id="catalogue-search" method="get"></form>
+<form method="post" action="/jobs/{{ j.id }}/approve" id="approve">
+<input type="hidden" name="q" value="{{ q }}">
+<p class="trackline"><span class="muted">Source track</span> <b>{{ t.label }}</b> · {{ t.language }}{% if t.name %} · “{{ t.name }}”{% endif %}{% if prep.plan and prep.plan.ok %}<br><span class="muted">New track</span> {{ prep.plan.label }} (lossless){% endif %}{% if j.media_id %}<br><a href="/media/{{ j.media_id }}">Choose another track</a>{% endif %}</p>
+
+<h2>Choose a filter</h2>
+<div class="decide">
+  {% if choices %}<div class="decide-curve">{{ curve() }}{% if overlay and svg %}<details class="add"><summary>All filters overlaid</summary>{{ overlay|safe }}</details>{% endif %}</div>{% endif %}
+  <div class="decide-list">
+    {% set main = choices|selectattr('group', 'in', ['catalogue', 'designer', 'search'])|list %}
+    {% set rest = choices|rejectattr('group', 'in', ['catalogue', 'designer', 'search'])|list %}
+    {{ choice_table(main) if main or not rest }}
+    {% if rest %}
+    <details class="more-filters"{{ ' open' if not main or (chosen and chosen.digest in rest|map(attribute='entry')|map(attribute='digest')|list) }}>
+      <summary>Show {{ rest|length }} more filter{{ 's' if rest|length != 1 }} (for other tracks, or rejected)</summary>
+      {{ choice_table(rest) }}
+    </details>
+    {% endif %}
+    <div class="search">
+      <label for="catalogue-q">Search the catalogue</label>
+      <div class="search-row">
+        <input id="catalogue-q" type="search" name="q" value="{{ q }}" placeholder="Film title or TMDB id" form="catalogue-search">
+        <button class="ghost" form="catalogue-search">Search</button>
+      </div>
+      <p class="small muted">Adds matching catalogue filters to the list above. Nothing is applied until you approve one.</p>
+    </div>
+  </div>
+</div>
+
+<h2>Options for the new track</h2>
+<div class="settings-grid">
+  <label class="fmt">Output
+    <select name="format" id="fmt">
+      {% for v, l in formats %}<option value="{{ v }}" {{ 'selected' if v == S.default_format }}>{{ l }}</option>{% else %}<option value="" disabled selected>DEE unavailable</option>{% endfor %}
+    </select>
+  </label>
+  <label>Gain
+    <select name="gain_mode" id="gain_mode">
+      <option value="auto">Auto: lower the level to fit the target peak</option>
+      <option value="fixed">Fixed gain</option>
+    </select>
+  </label>
+  <label id="tp">Target peak (dBFS) <input type="number" name="target_peak_dbfs" step="0.1" max="0" value="{{ S.default_target_peak_dbfs }}"></label>
+  <label id="fg" hidden>Fixed gain (dB) <input type="number" name="fixed_gain_db" step="0.1" value="0"></label>
+  <div class="opts">
+    <label class="chk"><input type="checkbox" name="default_flag" {{ 'checked' if S.beq_default_flag }}> Make BEQ track default</label>
+    <label class="chk"><input type="checkbox" name="replace_existing_beq" checked> Replace an existing BEQ track</label>
+  </div>
+  <p class="go small muted">The original track is kept. The film file is only updated after the audio, file, sync and channel-order checks all pass.</p>
+</div>
+{% set selected = (choices|selectattr('selectable')|selectattr('entry.digest', 'eq', chosen.digest)|first) if chosen %}
+<div class="approve-bar">
+  <p><span class="small muted">Selected filter</span> <b id="chosen-name">{{ selected.entry.label if selected else 'None yet' }}</b></p>
+  <button{{ ' disabled' if not choices|selectattr('selectable')|list }}>Approve &amp; queue</button>
+</div>
+</form>
+{% endif %}
+
+{% if j.result and j.result.charts %}{% set c = j.result.charts %}
+<h2>Before / after</h2>
+<p class="small muted">Measured from the original track and from the new BEQ track. Both images and the report are embedded in the MKV as <code>{{ c.names.spectrum }}</code>, <code>{{ c.names.heatmap }}</code> and <code>{{ c.names.report }}</code>.</p>
+<div class="charts">
+  <a href="/jobs/{{ j.id }}/charts/spectrum" target="_blank"><img src="/jobs/{{ j.id }}/charts/spectrum" alt="Peak and average spectrum, original and BEQ"><span class="small">Peak and average spectrum · open full size</span></a>
+  <a href="/jobs/{{ j.id }}/charts/heatmap" target="_blank"><img src="/jobs/{{ j.id }}/charts/heatmap" alt="Bass over the running time, original and BEQ"><span class="small">Bass over the running time · open full size</span></a>
+</div>
+<div class="actions"><a class="btn ghost" href="/jobs/{{ j.id }}/charts/report" download="{{ c.names.report }}">Download report (JSON)</a></div>
+{% endif %}
+
+{% if p.entry and j.phase == 'encode' %}
+<h2>{{ 'Result and settings' if j.result else 'Settings' }}</h2>
+<div class="cols encode">
+  {% if j.result %}{% set r = j.result.filter_report %}
+  <div class="col">
+    <h3>Result</h3>
+    <div class="result-grid">
+    <dl class="kv">
+      <dt>New track</dt><dd><b>{{ j.result.track_name }}</b></dd>
+      <dt>Filtered</dt><dd>{{ r.channels }} channels · {{ r.bits }}-bit · {{ (r.sample_rate/1000)|round(1) }} kHz{% if j.result.route == 'damf' %} (DAMF){% endif %}</dd>
+      <dt>Filter time</dt><dd>{{ r.seconds|clock }}</dd>
+      {% if r.fidelity and r.fidelity.method %}<dt>Lossless check</dt><dd>{% if r.fidelity.object_frames is defined %}<span class="good">every sample and object position verified</span>
+        <details class="numbers"><summary>Lossless check figures</summary>{{ '{:,}'.format(r.fidelity.frames) }} frames of {{ r.fidelity.objects }} objects + {{ r.fidelity.bed or 'no' }} base channels, carried in {{ r.fidelity.out_elements }} elements, equal the filtered source within dither (max {{ '%.2f'|format(r.fidelity.max_err_lsb) }} LSB at 24-bit) · object positions match the source in {{ '{:,}'.format(r.fidelity.object_frames) }} object-frames (the encoder moves each position update to the start of its 1536-sample frame: up to {{ r.fidelity.max_update_lead }} samples early){% if r.fidelity.method != 'sample-exact' %} · {{ r.fidelity.method|plain }}{% endif %}</details>{% else %}<span class="good">passed</span> · {{ r.fidelity.objects }} objects carried through (checked by an earlier encoder, which regrouped the objects){% endif %}</dd>
+      {% elif r.fidelity %}<dt>Lossless check</dt><dd>{% if r.fidelity.ok %}<span class="good">every sample verified</span>
+        <details class="numbers"><summary>Lossless check figures</summary>{{ '{:,}'.format(r.fidelity.frames) }} frames per channel equal the filtered source within dither (max {{ '%.2f'|format(r.fidelity.max_err_lsb) }} LSB at 24-bit){% if r.fidelity.offset_frames %} · encoder added {{ r.fidelity.offset_frames }} frames of leading silence{% endif %}{% if r.gaps %} · {{ r.gaps }} undecodable stretches of the source timeline kept as {{ '%.1f'|format(1000 * r.gap_frames / r.sample_rate) }} ms of silence{% endif %}</details>{% else %}<span class="bad">failed</span>: {{ r.fidelity.problem }}{% endif %}</dd>{% endif %}
+      {% if j.result.sync %}<dt>A/V sync</dt><dd>{{ '%+.2f'|format(j.result.sync.lag_ms) }} ms against the original{% if j.result.sync.confidence is not none %} (confidence {{ '%.0f'|format(j.result.sync.confidence * 100) }} of 100){% endif %}{% if j.result.sync.applied_ms %} · track offset {{ j.result.sync.applied_ms|round|int }} ms{% endif %}</dd>{% if j.result.sync.channel_corr %}<dt>Channel order</dt><dd>matches the original ({{ j.result.sync.channels }} channels)
+        <details class="numbers"><summary>Channel order figures</summary>{% for k, v in j.result.sync.channel_corr.items() %}{{ k }} {{ '%.2f'|format(v) }}{{ ', ' if not loop.last }}{% endfor %}</details></dd>{% endif %}{% endif %}
+    </dl>
+    <dl class="kv">
+      <dt>Peak in</dt><dd>{{ '%.1f'|format(r.peak_in_dbfs) }} dBFS</dd>
+      {% if r.peak_filtered_dbfs is not none %}<dt>Peak after BEQ</dt><dd>{{ '%.1f'|format(r.peak_filtered_dbfs) }} dBFS</dd>{% endif %}
+      <dt>Gain applied</dt><dd><b>{{ '%+.1f'|format(r.gain_db) }} dB</b> (all channels)</dd>
+      <dt>Peak out</dt><dd>{{ '%.1f'|format(r.peak_out_dbfs) }} dBFS{% if r.clipped_samples %} · <span class="bad">{{ r.clipped_samples }} clipped</span>{% endif %}</dd>
+    </dl>
+    </div>
+  </div>
+  {% endif %}
+  <div class="col">
+    {% if j.result %}<h3>Settings</h3>{% endif %}
+    <dl class="kv">
+      <dt>Filter</dt><dd>{{ p.entry.label }}{% if p.entry.audio_types %} · {{ p.entry.audio_types|join(', ') }}{% endif %}</dd>
+      <dt>Source track</dt><dd>#{{ p.track_id }}{% if prep %} {{ prep.track.label }}{% endif %}</dd>
+      <dt>Output</dt><dd>{% if p.format == 'flac' %}FLAC 24-bit (test){% elif prep and prep.track.kind == 'eac3_joc' %}TrueHD Atmos (Atmos objects decoded from DD+){% elif prep and prep.track.kind != 'truehd_atmos' %}TrueHD {{ prep.track.layout_label }} (channel-based){% else %}TrueHD Atmos (every Atmos object kept){% endif %}</dd>
+      <dt>Gain</dt><dd>{% if p.fixed_gain_db is not none %}fixed {{ p.fixed_gain_db }} dB{% else %}auto, target peak {{ p.target_peak_dbfs }} dBFS{% endif %}</dd>
+      <dt>Options</dt><dd>{{ 'default track · ' if p.default_flag }}{{ 'replace existing BEQ' if p.replace_existing_beq else 'keep existing BEQ' }}</dd>
+      <dt>Approved</dt><dd>{{ p.approved_at|t }}</dd>
+    </dl>
+  </div>
+  {% if svg %}{{ curve() }}{% endif %}
+</div>
+{% endif %}
+
+{% if prep %}
+<details class="tech">
+  <summary>Technical details</summary>
+  <div class="cols">
+    <div class="col">
+      <h3>Source</h3>
+      <dl class="kv">
+        <dt>Film</dt><dd>{{ film(prep.film.title, prep.film.year) }}
+          {% if prep.film.edition %}<span class="tag">{{ prep.film.edition }}</span>{% endif %}
+          {% if prep.film.tmdb %}<span class="tag">{{ prep.film.tmdb|tmdb }}</span>{% endif %}</dd>
+        <dt>File</dt><dd class="path">{{ j.path }}</dd>
+        <dt>Track</dt><dd>#{{ t.track_id }} <b>{{ t.label }}</b> · {{ t.codec }} · {{ t.language }}{% if t.name %} · “{{ t.name }}”{% endif %}</dd>
+        <dt>Layout</dt><dd>{{ t.layout or dash }}{{ ' (assumed)' if t.layout_assumed }}</dd>
+        {% if prep.plan %}<dt>BEQ output</dt><dd>{% if prep.plan.ok %}{{ prep.plan.label }} (lossless){% else %}{{ prep.plan.reason|plain }}{% endif %}</dd>{% endif %}
+      </dl>
+    </div>
+    {% set d = prep.design %}
+    {% if d %}
+    <div class="col">
+      <h3>Automatic designer</h3>
+      <dl class="kv">
+        <dt>Build</dt><dd>beqforge {{ d.release }} · design v{{ d.design_version }}{% if d.design_settings %} · settings {{ d.design_settings }}{% endif %}</dd>
+        <dt>Answer</dt><dd>{% if d.declined %}<b>No filter proposed</b>{% if d.decline_message %}<div class="small muted" title="{{ d.decline_reason }}">{{ d.decline_message }}</div>{% else %}: {{ d.decline_reason|replace('_', ' ') }}{% endif %}{% else %}{{ d.candidates|length }} filter{{ '' if d.candidates|length == 1 else 's' }} proposed{% if d.rejected %}, {{ d.rejected|length }} rejected{% endif %}{% endif %}</dd>
+        <dt>Analysis</dt><dd>{{ d.analysis.channels|join(' ') }} · {{ d.analysis.fs }} Hz · {{ (d.analysis.frames / d.analysis.fs)|clock }} · {{ d.analysis.mapping|replace('_', ' ') }}</dd>
+        {% if d.bass_management %}<dt>Sub feed</dt><dd>{{ d.bass_management.lpf_fs }} Hz LR4 {{ d.bass_management.lpf_position }}, headroom {{ d.bass_management.headroom_type }}</dd>{% endif %}
+        <dt>Time taken</dt><dd>{{ d.seconds|clock }}</dd>
+      </dl>
+    </div>
+    {% endif %}
+  </div>
+  {% if overlay and svg and j.status != 'awaiting' %}<details class="add"><summary>All filters overlaid</summary>{{ overlay|safe }}</details>{% endif %}
+</details>
+{% endif %}
+
+<h2 class="section-link" id="log-head">Log {% if j.log_path %}<a class="small" href="/jobs/{{ j.id }}/log" target="_blank">Open the full log</a>{% endif %}</h2>
+<pre id="log" class="log"></pre>
+{% endblock %}
+{% block scripts %}
+<script>
+const ID = {{ j.id }};
+let status = '{{ j.status }}';
+function renderLog(el, text) {
+  el.replaceChildren(...(text ? text.trimEnd().split('\n') : []).map((line) => {
+    const row = document.createElement('span');
+    row.className = /\b(ERROR|FAILED)\b/.test(line) ? 'ln log-err' : 'ln';
+    row.textContent = line.replace(/\bDesigner declined\b/, 'The automatic designer proposed no filter');
+    return row;
+  }));
+  const errors = el.querySelectorAll('.log-err');
+  const link = document.getElementById('err-link');
+  if (errors.length && link) {
+    errors[errors.length - 1].id = 'log-error';
+    link.href = '#log-error';
+  }
+}
+async function tick() {
+  const r = await fetch(`/api/jobs/${ID}?log_lines=200`); const j = await r.json();
+  const log = document.getElementById('log');
+  const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+  renderLog(log, j.log || '');
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  document.getElementById('elapsed').textContent = j.elapsed;
+  document.getElementById('msg').textContent = j.detail;
+  document.getElementById('eta').textContent = j.progress_note;
+  setBadge(document.getElementById('badge'), j);
+  document.getElementById('prog').innerHTML = progHTML(j);
+  if (status !== j.status && !['queued', 'running'].includes(j.status)) location.reload();
+  status = j.status;
+}
+tick();
+if (['queued', 'running'].includes(status)) setInterval(tick, 2000);
+const gm = document.getElementById('gain_mode');
+gm && gm.addEventListener('change', () => {
+  document.getElementById('tp').hidden = gm.value !== 'auto';
+  document.getElementById('fg').hidden = gm.value !== 'fixed';
+});
+let curveRequest = 0;
+async function showCurve(href, reveal) {
+  const request = ++curveRequest;
+  const html = await (await fetch(href)).text();
+  if (request !== curveRequest) return;
+  const next = new DOMParser().parseFromString(html, 'text/html').getElementById('curve');
+  const curve = document.getElementById('curve');
+  if (!next || !curve) return;
+  curve.replaceWith(next);
+  if (reveal) next.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+const approve = document.getElementById('approve');
+if (approve) {
+  approve.addEventListener('change', (e) => {
+    if (e.target.name !== 'digest') return;
+    document.getElementById('chosen-name').textContent = e.target.dataset.name;
+    showCurve(e.target.closest('tr').querySelector('.curve-link').href, false);
+  });
+  approve.addEventListener('click', (e) => {
+    const a = e.target.closest('.curve-link');
+    if (a) { e.preventDefault(); showCurve(a.href, true); }
+  });
+}
+</script>
+{% endblock %}

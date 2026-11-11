@@ -1,0 +1,10 @@
+app/tests
+app/**/__pycache__
+app/*.egg-info
+**/.pytest_cache
+.git
+config
+designer-cache
+designer-records
+cavern/**/bin
+cavern/**/obj

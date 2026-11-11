@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# cavern-dump build output (dotnet build / publish)
+cavern/**/bin/
+cavern/**/obj/
+
+# Local deployment: settings and the containers' state
+.env
+config/
+designer-cache/
+designer-records/

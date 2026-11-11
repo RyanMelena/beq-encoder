@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Jobs · BEQ Encoder{% endblock %}
+{% block body %}
+<h1>Jobs</h1>
+<table class="list" id="jobs">
+  <thead><tr><th class="num">Job</th><th>Film</th><th>Status</th><th class="num">Time</th><th>Latest</th><th>Action</th></tr></thead>
+  {% for title, rows in groups %}
+  <tbody>
+    <tr class="grp"><th colspan="6" scope="rowgroup">{{ title }} <span class="muted">{{ rows|length }}</span></th></tr>
+    {% for j in rows %}
+    <tr data-id="{{ j.id }}" data-status="{{ j.status }}" onclick="event.target.closest('a') || (location='/jobs/{{ j.id }}')">
+      <td class="num" data-label="Job">#{{ j.id }}</td>
+      <td class="film lead"><a href="/jobs/{{ j.id }}" title="{{ j.path }}">{{ j.film }}</a>{% if j.media_id %}<div class="small film-link"><a href="/media/{{ j.media_id }}">Open film</a></div>{% endif %}</td>
+      <td class="state">{{ status_badge(j.status) }}<div class="ph small muted">{{ j.step_label }}</div></td>
+      <td class="time num" data-label="Time"><span class="el">{{ j.elapsed }}</span><div class="when small muted">{{ j.when }}</div></td>
+      <td class="latest wide" data-label="Latest">
+        <div class="prog">{% include "_progress.html" %}</div>
+        <div class="msg">{{ j.detail }}</div>
+        <div class="eta small muted">{{ j.progress_note }}</div>
+      </td>
+      <td class="row-act"><a class="btn{{ ' ghost' if j.status != 'awaiting' }}" href="/jobs/{{ j.id }}" aria-label="Open job #{{ j.id }}">Open</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% else %}
+  <tbody><tr><td colspan="6" class="empty">No jobs yet. Pick a film in the Library and press Run BEQ; approve a filter when it is ready.</td></tr></tbody>
+  {% endfor %}
+</table>
+{% endblock %}
+{% block scripts %}
+<script>
+async function tick() {
+  const r = await fetch('/api/jobs'); const list = await r.json();
+  for (const j of list) {
+    const tr = document.querySelector(`tr[data-id="${j.id}"]`);
+    if (!tr || tr.dataset.status !== j.status) { location.reload(); return; }
+    setBadge(tr.querySelector('.badge'), j);
+    tr.querySelector('.prog').innerHTML = progHTML(j);
+    tr.querySelector('.el').textContent = j.elapsed;
+    tr.querySelector('.ph').textContent = j.step_label;
+    tr.querySelector('.msg').textContent = j.detail;
+    tr.querySelector('.eta').textContent = j.progress_note;
+  }
+}
+setInterval(tick, 2000);
+</script>
+{% endblock %}
