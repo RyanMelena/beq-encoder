@@ -50,6 +50,7 @@ The app version goes into the tags of every BEQ track, so a release tag must mat
 
 `.github/workflows/publish.yml` runs the tests, builds the image for linux/amd64, and pushes it to `ghcr.io/ryanmelena/beq-encoder`.
 The workflow refuses a tag that does not match both version files.
+Before the push, `.github/scripts/smoke-test.sh` starts the image through its entrypoint as a non-root user and waits for `/healthz`. An image that cannot start never reaches the registry. CI runs the same check on every pull request.
 
 | Trigger | Image tags |
 |---|---|

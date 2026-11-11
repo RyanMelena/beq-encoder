@@ -64,6 +64,19 @@ jobs:
             org.opencontainers.image.title=BEQ Encoder
             org.opencontainers.image.description=Adds a bass-EQ (BEQ) copy of a film's best audio track to the same MKV. Includes Cavern by VoidXH (https://github.com/VoidXH/Cavern) and a patched dee_shim (https://github.com/truehdd/dee-shim).
 
+      # Start the image before anything reaches the registry. The push below reuses these layers.
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: beq-encoder:smoke
+          cache-from: type=gha
+
+      - name: Start the image
+        run: bash .github/scripts/smoke-test.sh beq-encoder:smoke
+
       - name: Build and push
         uses: docker/build-push-action@v7
         with:

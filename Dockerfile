@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # BEQ Encoder: best audio track -> BEQ filter -> lossless TrueHD (Atmos or channel-based)
 # via the Dolby Encoding Engine 6.7 TrueHD encoder, run through dee_shim -> extra track
 # in the same MKV.
@@ -98,7 +100,8 @@ RUN apt-get update \
 COPY --from=cavern /out /opt/cavern-dump
 ENV CAVERN_DUMP=/opt/cavern-dump/cavern-dump
 
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# --chmod: a Linux checkout keeps the mode git stores, a Windows build context marks every file executable
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY app /src/app
 RUN python3 -m venv "$VIRTUAL_ENV" \
  && pip install /src/app \

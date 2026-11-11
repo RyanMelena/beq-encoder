@@ -50,6 +50,10 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          push: false
+          load: true
+          tags: beq-encoder:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Start the image
+        run: bash .github/scripts/smoke-test.sh beq-encoder:ci
