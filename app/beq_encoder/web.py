@@ -113,6 +113,10 @@ def _fmt_time(ts: float | None) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else ""
 
 
+def _fmt_day(ts: float | None) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(ts)) if ts else ""
+
+
 def _fmt_clock(seconds: float | None) -> str:
     """Every duration on screen, with its units: 8 s, 8 min 48 s, 1 h 3 min."""
     if seconds is None:
@@ -204,8 +208,8 @@ def _language(code: str | None) -> str:
 
 DASH = Markup('<span class="muted">\u2014</span>')  # every empty table cell
 
-tpl.env.filters.update(t=_fmt_time, dbs=_fmt_db, clock=_fmt_clock, plain=_plain, tmdb=_tmdb,
-                       band=_band, layout_note=_layout_note, language=_language)
+tpl.env.filters.update(t=_fmt_time, day=_fmt_day, dbs=_fmt_db, clock=_fmt_clock, plain=_plain,
+                       tmdb=_tmdb, band=_band, layout_note=_layout_note, language=_language)
 tpl.env.globals.update(dur=_fmt_dur, film=film_name, dash=DASH)
 
 

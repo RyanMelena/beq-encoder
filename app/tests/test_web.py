@@ -169,6 +169,10 @@ def test_run_review_choose_encode(app):
     assert "beqforge 9.9.9 flatten" in page and "Encode with this filter" in page
     assert "Ready for review" in page and "Don&#39;t add BEQ" in page and "Cancel job" not in page
     assert "introduces a cliff" in page  # the rejected design, review only
+    added = time.strftime("%Y-%m-%d", time.localtime(1543898641))
+    updated = time.strftime("%Y-%m-%d", time.localtime(1611984156))
+    assert f"<dt>Added</dt><dd>{added}</dd>" in page
+    assert f"<dt>Updated</dt><dd>{updated}</dd>" in page
     assert 'value="flac"' in page and 'value="ddp"' not in page
     # a second Run is refused while one is ready for review
     assert c.post(f"/media/{mid}/run", data={}).status_code == 409

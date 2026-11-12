@@ -50,6 +50,8 @@
           {% else %}
             <dl class="kv facts">
               <dt>Author</dt><dd>{{ e.author }}</dd>
+              {% if e.created_at %}<dt>Added</dt><dd>{{ e.created_at|day }}</dd>{% endif %}
+              {% if e.updated_at and (e.updated_at|day) != (e.created_at|day) %}<dt>Updated</dt><dd>{{ e.updated_at|day }}</dd>{% endif %}
               {% if e.mv and e.mv != '0' %}<dt>Volume offset</dt><dd>{{ e.mv }} dB</dd>{% endif %}
             </dl>
             {% if e.warning %}<div class="caution"><span class="badge warn" data-sym="⚠">Warning</span> {{ e.warning }}</div>{% endif %}

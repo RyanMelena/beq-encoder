@@ -447,10 +447,11 @@ def test_lossless_pcm_truehd_refuses_unsupported_channel_count(env, monkeypatch)
 CAT = [
     {"title": "Test Movie", "year": 2020, "theMovieDB": "333371", "audioTypes": ["Atmos"],
      "author": "a1", "source": "Disc", "digest": "atmos1", "content_type": "film",
+     "created_at": 1543898641, "updated_at": 1611984156,
      "filters": [{"type": "LowShelf", "freq": 20, "gain": 5, "q": 0.9, "count": 2}]},
     {"title": "Test Movie", "year": 2020, "theMovieDB": "333371",
      "audioTypes": ["DTS-HD MA 5.1", "DD+ 5.1"], "author": "a2", "source": "Disc",
-     "digest": "dts51", "content_type": "film", "filters": []},
+     "digest": "dts51", "content_type": "film", "filters": [], "created_at": "soon"},
     {"title": "Test Movie", "year": 2020, "theMovieDB": "333371", "audioTypes": ["DD+ Atmos"],
      "author": "a3", "source": "Streaming", "digest": "ddpa", "content_type": "film",
      "filters": [{"type": "LowShelf", "freq": 18, "gain": 6, "q": 0.9}]},
@@ -477,6 +478,14 @@ def test_catalogue_keeps_no_filter_entries_and_matches_the_track(cat):
     assert got[0][1].digest == "dts51"  # the DD+ 5.1 half of a combined entry
     got = cat.for_track("333371", None, None, None, "flac", "5.1")
     assert got[0][0] == "related"  # a FLAC rip may be of the DTS-HD MA track
+
+
+def test_catalogue_entries_carry_their_dates(cat):
+    e = cat.get("atmos1")
+    assert (e.created, e.updated) == (1543898641, 1611984156)
+    assert e.to_dict()["created_at"] == 1543898641
+    assert cat.get("dts51").created is None  # a bad date is dropped, not the entry
+    assert cat.get("ddpa").updated is None
 
 
 def test_refresh_reloads_only_when_the_file_changed(cat):

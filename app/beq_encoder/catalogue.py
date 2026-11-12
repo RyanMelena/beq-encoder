@@ -98,6 +98,8 @@ class Entry:
     note: str
     url: str
     filters: list[dict]
+    created: int | None = None  # when the entry joined the catalogue (Unix time)
+    updated: int | None = None  # when it last changed
 
     @property
     def no_filters(self) -> bool:
@@ -129,6 +131,8 @@ class Entry:
             "warning": self.warning,
             "note": self.note,
             "filters": self.filters,
+            "created_at": self.created,
+            "updated_at": self.updated,
             "origin": "catalogue",
             "label": self.author or "catalogue",
         }
@@ -150,6 +154,14 @@ def _number_or_text(e: dict, key: str) -> str:
     if isinstance(v, int | float) and not isinstance(v, bool):
         return str(v)
     return _text(e, key)
+
+
+def _epoch(e: dict, key: str) -> int | None:
+    """A Unix timestamp field; None when absent or not a time (never drops the entry)."""
+    v = e.get(key)
+    if isinstance(v, int | float) and not isinstance(v, bool) and v > 0:
+        return int(v)
+    return None
 
 
 def _audio_types(e: dict) -> list[str]:
@@ -191,6 +203,8 @@ def _entry(i: int, e: dict) -> Entry | None:
         note=_text(e, "note"),
         url=_text(e, "catalogue_url"),
         filters=filters,
+        created=_epoch(e, "created_at"),
+        updated=_epoch(e, "updated_at"),
     )
 
 
