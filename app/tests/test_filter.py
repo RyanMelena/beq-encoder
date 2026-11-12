@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from scipy.signal import sosfilt
 
-from beq_encoder import caf
+from beq_encoder import caf, workers
 from beq_encoder.beqfilter import FilterJob, apply
 from beq_encoder.biquad import FilterSpec, design_sos, rbj
 
@@ -25,6 +25,52 @@ def test_rbj_matches_catalogue_coefficients():
     assert [-a[1], -a[2]] == pytest.approx([1.9970412515096825, -0.997049967078518], abs=1e-14)
     b, a = rbj(FilterSpec("LowShelf", 22.0, 5.0, 0.9), 96000)
     assert b == pytest.approx([1.0002311798591146, -1.998613357621746, 0.9983849406416764], abs=1e-14)
+
+
+@pytest.mark.parametrize("bits,is_float,le", [
+    (24, False, False), (24, False, True), (16, False, False), (32, False, True),
+    (32, True, False), (64, True, True)])
+def test_a_block_split_over_threads_converts_as_sample_by_sample(bits, is_float, le):
+    """A block long enough to be converted in parts (workers.over_rows), with samples
+    past full scale: the bytes, the count clipped and the decode are those of one sample
+    at a time."""
+    frames, ch = 5 * workers.MIN_ROWS + 1, 3
+    x = np.random.default_rng(7).uniform(-1.2, 1.2, (frames, ch))
+    info = caf.CafInfo("x", 48000.0, ch, bits, is_float, le, 0, frames * ch * bits // 8)
+    order = "little" if le else "big"
+    if is_float:
+        kept = x.astype(f"{'<' if le else '>'}f{bits // 8}")
+        want, clipped, back = kept.tobytes(), int((np.abs(x) > 1).sum()), kept.astype(float)
+    else:
+        fs = 2 ** (bits - 1)
+        q = [round(v) for v in (x * fs).reshape(-1).tolist()]  # half to even, as np.rint
+        clipped = sum(v < -fs or v > fs - 1 for v in q)
+        q = [min(max(v, -fs), fs - 1) for v in q]
+        want = b"".join(v.to_bytes(bits // 8, order, signed=True) for v in q)
+        back = np.array(q, dtype=float).reshape(-1, ch) / fs
+    raw, n = caf.encode(info, x)
+    assert (raw, n) == (want, clipped) and clipped
+    assert np.array_equal(caf.decode(info, raw), back)
+    assert caf.decode(info, b"").shape == (0, ch)
+    with pytest.raises(ValueError, match="not whole frames"):
+        caf.decode(info, raw[:-1])
+
+
+def test_the_peak_of_a_block_is_its_largest_magnitude():
+    x = np.random.default_rng(8).uniform(-0.5, 0.5, (5 * workers.MIN_ROWS + 1, 3))
+    x[-1, 2] = -0.75
+    assert workers.abs_peak(x) == 0.75
+    assert workers.abs_peak(x[:0]) == 0.0
+    x[3, 1] = np.nan  # as np.max: never mistaken for a quiet block
+    assert np.isnan(workers.abs_peak(x))
+
+
+def test_rows_are_split_into_parts_that_cover_them_in_order():
+    for rows in (0, 1, workers.MIN_ROWS, 2 * workers.MIN_ROWS + 1, 1 << 18):
+        parts = workers.over_rows(lambda a, b: (a, b), rows)
+        assert parts[0][0] == 0 and parts[-1][1] == rows
+        assert all(p[1] == n[0] for p, n in zip(parts, parts[1:], strict=False))
+        assert len(parts) <= max(1, workers.WORKERS)
 
 
 def test_design_expands_count():

@@ -16,6 +16,9 @@ from .processes import JobFailed
 SR = 48000
 # ffprobe reading a whole film: as long as one decode of it may take
 PACKET_COUNT_TIMEOUT_S = 4 * 3600
+# As much of a TrueHD stream as truehdd info is shown: its presentations are in the first
+# major sync, at the very start
+DIALNORM_HEAD_BYTES = 4 << 20
 _FRAMES_TAG = "tag_number_of_frames"
 _GUI_PROGRESS_RE = re.compile(r"#GUI#progress\s+(\d+)%")
 _OUT_TIME_RE = re.compile(r"out_time_us=(\d+)")
@@ -166,14 +169,33 @@ def _dialnorm_in_range(level: int) -> int:
     return max(-31, min(-1, level))
 
 
-def truehd_dialnorm(job: Job, raw: Path) -> int:
-    """The dialogue level of the stream's top presentation (truehdd info)."""
-    r = job.procs.capture([job.s.truehdd_path, "--loglevel", "warn", "info", str(raw)],
+def _truehdd_info(job: Job, path: Path) -> tuple[int, list[str]]:
+    """(truehdd info's exit code, the dialogue level of each presentation it lists)."""
+    r = job.procs.capture([job.s.truehdd_path, "--loglevel", "warn", "info", str(path)],
                           timeout=3600)
-    levels = re.findall(r"Dialogue Level\s+(-?\d+)\s*dBFS", r.stdout)
-    if r.returncode != 0 or not levels:
+    return r.returncode, re.findall(r"Dialogue Level\s+(-?\d+)\s*dBFS", r.stdout)
+
+
+def truehd_dialnorm(job: Job, raw: Path) -> int:
+    """The dialogue level of the stream's top presentation (truehdd info).
+
+    truehdd lists the presentations from the stream's first major sync and then reads
+    the rest only to total it up (a minute and a half for a film), so it is shown the
+    start of the stream alone: measured, truehdd 0.6.2 prints the same presentations for
+    the first 4 MB of a stream as for all of it, cut mid-unit or not. Should the start
+    not give a level, the whole stream is read as before."""
+    head = raw.with_name(f"{raw.stem}-head{raw.suffix}")
+    try:
+        with open(raw, "rb") as src, open(head, "wb") as dst:
+            dst.write(src.read(DIALNORM_HEAD_BYTES))
+        code, levels = _truehdd_info(job, head)
+    finally:
+        head.unlink(missing_ok=True)
+    if code != 0 or not levels:
+        code, levels = _truehdd_info(job, raw)
+    if code != 0 or not levels:
         raise JobFailed(f"Could not read the dialogue level of the TrueHD track (truehdd "
-                        f"info: exit {r.returncode}), so it was left alone: writing a "
+                        f"info: exit {code}), so it was left alone: writing a "
                         "guessed level would change how loud it plays on a decoder that "
                         "applies dialnorm")
     return _dialnorm_in_range(int(levels[-1]))

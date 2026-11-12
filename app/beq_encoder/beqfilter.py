@@ -29,6 +29,7 @@ import numpy as np
 
 from . import caf
 from .biquad import FilterSpec, design_sos, sosfilt_channels
+from .workers import abs_peak
 
 CHUNK_FRAMES = 1 << 18  # 262144 frames; ~12 MB of 16-ch 24-bit audio
 MEASURE_STAGE = "BEQ filter: measuring peak"
@@ -101,9 +102,9 @@ def filter_stream(read: ReadBlocks, write: WriteBlock, sos: np.ndarray, channels
         state = zi()
         peak = 0.0
         for x in read(MEASURE_STAGE):
-            peak_in = max(peak_in, float(np.max(np.abs(x))))
+            peak_in = max(peak_in, abs_peak(x))
             y, state = sosfilt_channels(sos, x, state)
-            peak = max(peak, float(np.max(np.abs(y))))
+            peak = max(peak, abs_peak(y))
         peak_filtered = peak
         gain_db = min(0.0, target_peak_dbfs - dbfs(peak)) if peak > 0 else 0.0
     else:
@@ -117,10 +118,10 @@ def filter_stream(read: ReadBlocks, write: WriteBlock, sos: np.ndarray, channels
     frames = 0
     for x in read(write_stage):
         if fixed_gain_db is not None:
-            peak_in = max(peak_in, float(np.max(np.abs(x))))
+            peak_in = max(peak_in, abs_peak(x))
         y, state = sosfilt_channels(sos, x, state)
         y *= gain
-        peak_out = max(peak_out, float(np.max(np.abs(y))))
+        peak_out = max(peak_out, abs_peak(y))
         if dither_lsb is not None:
             y += (rng.random(y.shape) - rng.random(y.shape)) * dither_lsb
         clipped += write(y)

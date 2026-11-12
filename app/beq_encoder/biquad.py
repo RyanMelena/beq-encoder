@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import math
-import os
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
+
+from .workers import POOL
 
 SUPPORTED_TYPES = ("PeakingEQ", "LowShelf", "HighShelf")
 
@@ -108,10 +108,6 @@ def response_db(filters: list[FilterSpec], freqs: np.ndarray, fs: float = 48000)
     return 20 * np.log10(np.maximum(np.abs(h), 1e-12))
 
 
-# threads start on first use, so building it here costs nothing at import
-_POOL = ThreadPoolExecutor(max(1, min(16, os.cpu_count() or 4)), thread_name_prefix="sosfilt")
-
-
 def sosfilt_channels(sos, x, zi):
     """scipy's sosfilt along axis 0 of (frames, channels) with state `zi`
     (sections, 2, channels), each channel in its own thread: sosfilt releases the GIL
@@ -121,11 +117,10 @@ def sosfilt_channels(sos, x, zi):
     ch = x.shape[1] if x.ndim == 2 else 1
     if ch < 2 or len(x) < 4096:
         return sosfilt(sos, x, axis=0, zi=zi)
-    cols = np.ascontiguousarray(x.T)
+    out = np.empty(x.shape)
 
-    def one(c):
-        return sosfilt(sos, cols[c], zi=zi[:, :, c])
+    def one(c):  # the channel is taken out of the block and put back in its own thread too
+        out[:, c], state = sosfilt(sos, np.ascontiguousarray(x[:, c]), zi=zi[:, :, c])
+        return state
 
-    res = list(_POOL.map(one, range(ch)))
-    return (np.stack([r[0] for r in res], axis=1),
-            np.stack([r[1] for r in res], axis=2))
+    return out, np.stack(list(POOL.map(one, range(ch))), axis=2)

@@ -257,6 +257,78 @@ def test_a_broken_encode_fails_and_says_why(tmp_path, name):
     assert not res.ok and says in res.problem
 
 
+# -- one pass over the programme where the encode allows it -----------------------------
+
+NAMES = ["LFE"] + [f"object {o + 1} (ID {10 + o})" for o in range(4)]
+MAPPING = {0: 0, **{1 + o: 1 + ORDER.index(o) for o in range(4)}}
+
+
+def _errors_lsb(x, y):
+    """Each source element's largest distance from the encoded element that carries it,
+    worked out here from the filter alone."""
+    want = sosfilt(SOS, x, axis=0) * GAIN
+    carried = y[:, [MAPPING[c] for c in range(5)]]
+    return dict(zip(NAMES, np.abs(want - carried).max(axis=0) / LSB, strict=True))
+
+
+def _playing(y):
+    """The (object, frame) pairs in which an encoded object has audio."""
+    return sum(bool(np.any(y[f * FRAME:(f + 1) * FRAME, 1 + k]))
+               for f in range(-(-FRAMES // FRAME)) for k in range(4))
+
+
+def _passes(ticks, block):
+    """How many times the check read the programme: it ticks once a block of each pass."""
+    return len(ticks) / -(-FRAMES // block)
+
+
+@pytest.mark.parametrize("block", [1 << 17, 1 << 14])
+def test_an_exact_encode_is_checked_in_one_pass(tmp_path, block):
+    """Reordered objects, one that starts a second in (blocks into the programme at the
+    smaller size) and one that falls silent for a while: one read of the programme finds
+    which element carries each and every sample's error."""
+    x, events, y, enc = _case()
+    _write(tmp_path, x, events, y, enc)
+    ticks = []
+    res = _verify(tmp_path, block=block, tick=ticks.append)
+    assert res.ok, res.problem
+    assert _passes(ticks, block) == 1
+    assert ticks == sorted(ticks) and ticks[-1] == pytest.approx(FRAMES)
+    assert res.mapping == MAPPING
+    assert res.element_err_lsb == pytest.approx(_errors_lsb(x, y), abs=1e-6)
+    assert res.object_frames == _playing(y) and res.max_update_lead == 384
+
+
+def test_objects_that_start_alike_are_told_apart_in_a_second_pass(tmp_path):
+    """Objects 1 and 4 open alike, and the first free encoded element carries object 4.
+    It matches object 1 only until they part, so the samples are compared again once the
+    whole programme has settled which element carries which. The encode is exact."""
+    block = 1 << 14
+    x, events = _programme(), _source_events()
+    x[:FS, 4] = x[:FS, 1]
+    y, enc = _dee(x, events)
+    _write(tmp_path, x, events, y, enc)
+    ticks = []
+    res = _verify(tmp_path, block=block, tick=ticks.append)
+    assert res.ok, res.problem
+    assert _passes(ticks, block) == 2 and ticks[-1] == pytest.approx(FRAMES)
+    assert res.mapping == MAPPING
+    assert res.element_err_lsb == pytest.approx(_errors_lsb(x, y), abs=1e-6)
+    assert res.object_frames == _playing(y)
+
+
+def test_audio_in_an_element_before_its_object_starts_fails(tmp_path):
+    """Object 4 is silent for the first second; the element that carries it is not (1 LSB,
+    once, blocks before the object starts)."""
+    x, events, y, enc = _case()
+    y[100, 1 + ORDER.index(3)] = LSB
+    _write(tmp_path, x, events, y, enc)
+    res = _verify(tmp_path, block=1 << 14)
+    assert not res.ok
+    assert "sample 100 of object 4 (ID 13) differs from the filtered source by 1.0 LSB" \
+        in res.problem
+
+
 # -- the stages, each alone ------------------------------------------------------------
 def test_position_events_hold_each_event_until_the_next(tmp_path):
     meta = tmp_path / "m.atmos.metadata"

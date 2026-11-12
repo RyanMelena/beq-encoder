@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -28,7 +29,8 @@ from beq_encoder import config, dee, media, pcmio, synccheck
 from beq_encoder.beqfilter import FilterJob, apply, filter_stream
 from beq_encoder.biquad import FilterSpec, design_sos
 from beq_encoder.db import DB
-from beq_encoder.pipeline import Cancelled, FileStamp, JobFailed, JobRunner, source_pin, temp_mkv
+from beq_encoder.pipeline import (Cancelled, FileStamp, JobFailed, JobRunner, source_pin, temp_mkv,
+                                  tools)
 from beq_encoder.pipeline.processes import Processes
 from beq_encoder.pipeline.route_pcm import block_writer
 from beq_encoder.worker import JobQueue, Scanner
@@ -478,6 +480,59 @@ def test_a_dolby_track_whose_dialogue_level_cannot_be_read_fails_the_job(env, mo
     with pytest.raises(JobFailed, match="dialogue level"):
         _run(s, path, {**_pcm_params(pr), "format": "truehd"}, tmp)
     assert path.read_bytes()[:4096] == digest
+
+
+INFO_HEAD = 4096
+# a truehdd that lists a presentation's level only when shown at least FAKE_INFO_NEEDS bytes
+FAKE_INFO = """#!{py}
+import os, sys
+path = sys.argv[-1]
+size = os.path.getsize(path)
+with open({log!r}, 'a') as fh:
+    fh.write(f'{{os.path.basename(path)}} {{size}}\\n')
+if size >= int(os.environ.get('FAKE_INFO_NEEDS', '0')):
+    print('  Presentation 0\\n    Dialogue Level          -31 dBFS')
+    print('  Presentation 3\\n    Dialogue Level          -27 dBFS')
+sys.exit(int(os.environ.get('FAKE_INFO_EXIT', '0')))
+"""
+
+
+@pytest.fixture
+def info_job(tmp_path, monkeypatch):
+    """(what truehd_dialnorm needs of a job, a TrueHD stream longer than the part truehdd
+    is shown, the log of what truehdd was shown)."""
+    monkeypatch.setattr(tools, "DIALNORM_HEAD_BYTES", INFO_HEAD)
+    log = tmp_path / "shown.log"
+    exe = _exe(tmp_path / "truehdd-info", FAKE_INFO.format(py=sys.executable, log=str(log)))
+    raw = tmp_path / "source.thd"
+    raw.write_bytes(bytes(range(256)) * 40)
+    job = SimpleNamespace(s=SimpleNamespace(truehdd_path=str(exe)),
+                          procs=Processes(lambda _msg: None))
+    return job, raw, lambda: log.read_text().split("\n")[:-1]
+
+
+def test_the_dialogue_level_is_read_from_the_start_of_the_stream(info_job):
+    job, raw, shown = info_job
+    whole = raw.read_bytes()
+    assert tools.truehd_dialnorm(job, raw) == -27  # the top presentation's
+    assert shown() == [f"source-head.thd {INFO_HEAD}"]
+    assert raw.read_bytes() == whole and sorted(p.name for p in raw.parent.glob("*.thd")) == [
+        "source.thd"]
+
+
+def test_a_stream_whose_start_gives_no_level_is_read_whole(info_job, monkeypatch):
+    job, raw, shown = info_job
+    monkeypatch.setenv("FAKE_INFO_NEEDS", str(INFO_HEAD + 1))
+    assert tools.truehd_dialnorm(job, raw) == -27
+    assert shown() == [f"source-head.thd {INFO_HEAD}", f"source.thd {raw.stat().st_size}"]
+    monkeypatch.setenv("FAKE_INFO_NEEDS", str(10**9))  # nor does the whole of it
+    with pytest.raises(JobFailed, match="Could not read the dialogue level .*exit 0"):
+        tools.truehd_dialnorm(job, raw)
+    monkeypatch.setenv("FAKE_INFO_NEEDS", "0")
+    monkeypatch.setenv("FAKE_INFO_EXIT", "3")  # a level from a run that failed is not one
+    with pytest.raises(JobFailed, match="Could not read the dialogue level .*exit 3"):
+        tools.truehd_dialnorm(job, raw)
+    assert [p.name for p in raw.parent.glob("*.thd")] == ["source.thd"]
 
 
 def test_dee_probe_and_licence_redaction(tmp_path, assets):

@@ -93,7 +93,7 @@ After the mux, the A/V check decodes both tracks at the 30 % point of the film, 
 ## Level, DRC, and channel order
 
 **Dialogue level.** The encoder passes the dialogue level of the source to DEE with `--loudness-management skip:dialnorm=N`.
-The level comes from `truehdd info` for TrueHD and from MediaInfo for AC-3 and DD+. DTS, PCM, and FLAC carry none, so N is -31.
+The level comes from `truehdd info` for TrueHD (run on the first 4 MB of the stream, which lists the same presentations as the whole of it) and from MediaInfo for AC-3 and DD+. DTS, PCM, and FLAC carry none, so N is -31.
 Without this switch, DEE measures the loudness and writes its own value.
 A disc marked -31 can come out as -22, and a decoder that applies dialnorm then plays the BEQ track 9 dB quieter than the original.
 

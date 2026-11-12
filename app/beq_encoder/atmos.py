@@ -27,6 +27,11 @@ is checked like every other route, sample by sample, and fails loudly otherwise:
   mid-frame must equal the source position in effect at the frame's last sample
   (a track's first event is its initial state), within POSITION_TOLERANCE.
 
+Both are judged in one pass over the programme where the encode allows it (`_Guess`):
+the element carrying each source element is settled over the whole programme, so it is
+guessed as each element starts and the samples compared under the guess; if the guess
+does not hold, the samples are compared again in a second pass.
+
 Reported: each element's largest error in LSB, the object-frames whose position was
 checked, and the largest lead DEE gave an update by moving it to its frame's start.
 """
@@ -44,6 +49,7 @@ import yaml
 
 from .biquad import sosfilt_channels
 from .caf import CafStream, read_info
+from .workers import over_rows
 
 try:  # the C loader is ~10x faster on a film's metadata
     _Loader = yaml.CSafeLoader
@@ -221,11 +227,12 @@ class _Streams:
 
     @contextmanager
     def reading(self, skip: int):
-        """(the expected signal block by block, the encode past `skip` leading frames)."""
+        """(the expected signal block by block, the encode past `skip` leading frames,
+        the source's length in frames)."""
         src, out = self.source.open(), self.encoded.open()
         try:
             out.read(skip)
-            yield _expected(src, self.sos, self.gain, self.block), out
+            yield _expected(src, self.sos, self.gain, self.block), out, src.info.frames
         finally:
             src.close()
             out.close()
@@ -332,7 +339,7 @@ def _lead_problem(encoded: _Damf, offset: int) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Energies:
-    """Pass 1: the encode against the expected signal, element by element, over the
+    """The encode against the expected signal, element by element, over the
     whole programme."""
     frames: int
     cross: np.ndarray     # (encoded, source): inner products
@@ -350,31 +357,48 @@ class Energies:
         return [c for c in self.active if c >= nb]
 
 
+def _column_sums(fn, x: np.ndarray, width: int) -> np.ndarray:
+    """`fn(first, stop)` gives one row of `width` per part of `x`'s rows: their sum."""
+    return np.sum(over_rows(fn, len(x)), axis=0) if len(x) else np.zeros(width)
+
+
+def _column_peaks(x: np.ndarray) -> np.ndarray:
+    """The largest magnitude in each column of `x`."""
+    if not len(x):
+        return np.zeros(x.shape[1])
+    return np.max(over_rows(lambda a, b: np.abs(x[a:b]).max(axis=0), len(x)), axis=0)
+
+
 def _correlate(streams: _Streams, offset: int, max_offset: int,
-               tick) -> tuple[Energies | None, str]:
-    """(the energies, why the encode's length is wrong)."""
+               tick) -> tuple[Energies | None, _Guess | None, str]:
+    """(the energies, the samples as compared along the way, why the encode's length
+    is wrong)."""
     nc, nk = streams.source.layout.channels, streams.encoded.layout.channels
     cross, e_src, e_out = np.zeros((nk, nc)), np.zeros(nc), np.zeros(nk)
     peak, out_peak = np.zeros(nc), np.zeros(nk)
     total = 0
-    with streams.reading(offset) as (expected, out):
+    with streams.reading(offset) as (expected, out, frames):
+        guess = _Guess.over(frames, nc, nk, len(streams.source.layout.bed))
         for y in expected:
             b = out.read(len(y))
             if len(b) < len(y):
-                return None, (f"the encoded track ends early: {total + len(b)} of the "
-                              "source's frames")
+                return None, None, (f"the encoded track ends early: {total + len(b)} of "
+                                    "the source's frames")
             cross += b.T @ y
-            e_src += (y * y).sum(axis=0)
-            e_out += (b * b).sum(axis=0)
-            peak = np.maximum(peak, np.abs(y).max(axis=0, initial=0.0))
-            out_peak = np.maximum(out_peak, np.abs(b).max(axis=0, initial=0.0))
+            e_src += _column_sums(lambda i, j: (y[i:j] * y[i:j]).sum(axis=0), y, nc)
+            e_out += _column_sums(lambda i, j: (b[i:j] * b[i:j]).sum(axis=0), b, nk)
+            block_peak, block_out_peak = _column_peaks(y), _column_peaks(b)
+            guess.block(y, b, total, block_peak, peak, out_peak)
+            peak = np.maximum(peak, block_peak)
+            out_peak = np.maximum(out_peak, block_out_peak)
             total += len(y)
-            if tick:
-                tick(total / 2)
+            if tick:  # the samples still have to be compared if the guess has failed
+                tick(total if guess.holds else total / 2)
         tail = out.read(max_offset + 1)
     if len(tail) > max_offset or np.abs(tail).max(initial=0.0):
-        return None, f"the encoded track has {len(tail)} unexpected frames after the source ends"
-    return Energies(total, cross, e_src, e_out, peak, out_peak), ""
+        return None, None, (f"the encoded track has {len(tail)} unexpected frames after "
+                            "the source ends")
+    return Energies(total, cross, e_src, e_out, peak, out_peak), guess, ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -418,36 +442,134 @@ def map_elements(energies: Energies, layout: Layout, min_object_corr: float) -> 
 
 @dataclass(frozen=True, slots=True)
 class _Samples:
-    """Pass 2: every sample of the mapped elements against the expected signal."""
+    """Every sample of the mapped elements against the expected signal."""
     idx: np.ndarray            # the mapped source elements
     err_lsb: np.ndarray        # the largest error of each, so far
     audible: np.ndarray        # (frames of FRAME samples, mapped elements): any audio
     problem: str = ""
 
 
+_TOLERANCE = TOLERANCE_LSB * LSB24
+
+
+def _errors(y: np.ndarray, b: np.ndarray, idx: np.ndarray, ks: np.ndarray) -> np.ndarray:
+    """|expected - encoded| of source elements `idx` as carried by encoded elements `ks`,
+    for a block of each: (frames, len(idx))."""
+    d = np.empty((len(y), len(idx)))
+
+    def part(i: int, j: int) -> None:
+        np.clip(y[i:j, idx], -1.0, 1.0 - LSB24, out=d[i:j])
+        d[i:j] -= b[i:j, ks]
+        np.abs(d[i:j], out=d[i:j])
+
+    over_rows(part, len(y))
+    return d
+
+
+def _mark_audible(audible: np.ndarray, cols: np.ndarray, b: np.ndarray, ks: np.ndarray,
+                  done: int) -> None:
+    """Set `audible[frame, cols]` for each frame of FRAME samples in which the encoded
+    elements `ks` of block `b` (which starts at sample `done`) are not digitally silent."""
+    ids = (done + np.arange(len(b))) // FRAME
+    starts = np.flatnonzero(np.diff(ids, prepend=-1))
+    audible[ids[starts][:, None], cols] |= np.logical_or.reduceat(b[:, ks] != 0, starts, axis=0)
+
+
+@dataclass(slots=True)
+class _Guess:
+    """The samples compared during the pass that measures the energies, before the
+    mapping that pass ends with is known.
+
+    A source element is given the encoded element that carries it when its expected
+    signal first leaves digital silence: the first free one (its own, for a bed channel)
+    that matches it within the tolerance over that block and has been digitally silent
+    until then, so that every earlier sample of the pair is accounted for (the error
+    there is the expected signal's own magnitude). From then on the pair is compared
+    block by block as `_compare` does. Anything that does not fit ends the guess:
+    `samples` then gives None, and `_compare` judges (and words the failure) in a
+    second pass. So what is accepted here is exactly what `_compare` would find."""
+    nb: int                    # bed channels
+    nk: int                    # encoded elements
+    err: np.ndarray            # the largest error of each source element, so far
+    audible: np.ndarray        # (frames of FRAME samples, source elements): any audio
+    to: dict[int, int] = field(default_factory=dict)   # source element -> encoded
+    holds: bool = True
+
+    @classmethod
+    def over(cls, frames: int, nc: int, nk: int, nb: int) -> _Guess:
+        return cls(nb, nk, np.zeros(nc), np.zeros((-(-frames // FRAME), nc), dtype=bool))
+
+    def _carrier(self, c: int, y: np.ndarray, b: np.ndarray, out_peak: np.ndarray) -> int | None:
+        """The encoded element that carries source element `c` in this block."""
+        taken = set(self.to.values())
+        cands = [c] if c < self.nb else [k for k in range(self.nb, self.nk) if k not in taken]
+        want = np.clip(y[:, c], -1.0, 1.0 - LSB24)
+        for k in cands:
+            if k < self.nk and out_peak[k] == 0 and \
+                    np.abs(want - b[:, k]).max(initial=0.0) <= _TOLERANCE:
+                return k
+        return None
+
+    def block(self, y: np.ndarray, b: np.ndarray, done: int, block_peak: np.ndarray,
+              peak: np.ndarray, out_peak: np.ndarray) -> None:
+        """Take in the block that starts at sample `done`. `block_peak` is each expected
+        element's peak in it; `peak` and `out_peak` are the expected and the encoded
+        elements' peaks over everything before it."""
+        if not self.holds:
+            return
+        for c in np.flatnonzero(block_peak > _TOLERANCE):
+            c = int(c)
+            if c in self.to:
+                continue
+            k = self._carrier(c, y, b, out_peak)
+            # every earlier block left it below the tolerance, unless one held a NaN
+            if k is None or not peak[c] <= _TOLERANCE:
+                self.holds = False
+                return
+            self.to[c] = k
+            self.err[c] = peak[c]
+        if not self.to:
+            return
+        idx = np.array(sorted(self.to), dtype=int)
+        ks = np.array([self.to[c] for c in idx], dtype=int)
+        d = _errors(y, b, idx, ks)
+        worst = d.max(axis=0, initial=0.0)
+        if not (worst <= _TOLERANCE).all():  # a NaN compares false: never a pass
+            self.holds = False
+            return
+        self.err[idx] = np.maximum(self.err[idx], worst)
+        _mark_audible(self.audible, idx, b, ks, done)
+
+    def samples(self, emap: ElementMap) -> _Samples | None:
+        """What `_compare` would give for `emap`, if the guess held and is that mapping."""
+        if not self.holds or self.to != emap.mapping:
+            return None
+        idx = np.array(sorted(self.to), dtype=int)
+        return _Samples(idx, self.err[idx] / LSB24, self.audible[:, idx])
+
+
 def _compare(streams: _Streams, energies: Energies, offset: int, emap: ElementMap,
              tick) -> _Samples:
+    """A pass of its own over the programme: every sample of the mapped elements."""
     idx = np.array(sorted(emap.mapping), dtype=int)
     ks = np.array([emap.mapping[c] for c in idx], dtype=int)
-    tol = TOLERANCE_LSB * LSB24
+    cols = np.arange(len(idx))
     err = np.zeros(len(idx))
     audible = np.zeros((-(-energies.frames // FRAME), len(idx)), dtype=bool)
     done = 0
-    with streams.reading(offset) as (expected, out):
+    with streams.reading(offset) as (expected, out, _frames):
         for y in expected:
-            b = out.read(len(y))[:, ks]
-            d = np.abs(np.clip(y[:, idx], -1.0, 1.0 - LSB24) - b)
+            b = out.read(len(y))
+            d = _errors(y, b, idx, ks)
             err = np.maximum(err, d.max(axis=0, initial=0.0))
-            bad = ~(d <= tol)  # a NaN compares false against everything: never a pass
+            bad = ~(d <= _TOLERANCE)  # a NaN compares false against everything: never a pass
             if bad.any():
                 at, j = np.argwhere(bad)[0]
                 name = streams.source.layout.name(int(idx[j]))
                 return _Samples(idx, err / LSB24, audible, (
                     f"sample {done + int(at)} of {name} differs from the filtered source "
                     f"by {d[at, j] / LSB24:.1f} LSB"))
-            ids = (done + np.arange(len(b))) // FRAME
-            starts = np.flatnonzero(np.diff(ids, prepend=-1))
-            audible[ids[starts]] |= np.logical_or.reduceat(b != 0, starts, axis=0)
+            _mark_audible(audible, cols, b, ks, done)
             done += len(y)
             if tick:
                 tick(energies.frames / 2 + done / 2)
@@ -527,7 +649,7 @@ def verify(src_base: Path | str, out_base: Path | str, sos: np.ndarray, gain: fl
     res.problem = _lead_problem(encoded, res.offset_frames)
     if res.problem:
         return res
-    energies, res.problem = _correlate(streams, res.offset_frames, max_offset, tick)
+    energies, guess, res.problem = _correlate(streams, res.offset_frames, max_offset, tick)
     if res.problem:
         return res
     nb = len(source.layout.bed)
@@ -536,7 +658,7 @@ def verify(src_base: Path | str, out_base: Path | str, sos: np.ndarray, gain: fl
     res.mapping, res.min_object_corr, res.problem = emap.mapping, emap.min_corr, emap.problem
     if res.problem:
         return res
-    samples = _compare(streams, energies, res.offset_frames, emap, tick)
+    samples = guess.samples(emap) or _compare(streams, energies, res.offset_frames, emap, tick)
     res.element_err_lsb = {source.layout.name(int(c)): float(e)
                            for c, e in zip(samples.idx, samples.err_lsb, strict=True)}
     res.max_err_lsb = float(samples.err_lsb.max(initial=0.0))

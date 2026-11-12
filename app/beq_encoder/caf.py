@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .workers import over_rows
+
 _FLAG_FLOAT = 1
 _FLAG_LITTLE_ENDIAN = 2
 
@@ -90,25 +92,38 @@ def read_info(path: str) -> CafInfo:
     raise ValueError(f"{path}: no audio data chunk found")
 
 
-def decode(info: CafInfo, raw: bytes) -> np.ndarray:
-    """Raw interleaved bytes -> float64 array (frames, channels), full scale = 1.0."""
+def _decode_part(info: CafInfo, raw: np.ndarray, out: np.ndarray) -> None:
+    """Whole samples as bytes (uint8) -> `out` (flat float64), full scale = 1.0."""
     e = "<" if info.little_endian else ">"
     if info.is_float:
-        x = np.frombuffer(raw, dtype=f"{e}f{info.bytes_per_sample}").astype(np.float64)
+        out[:] = raw.view(f"{e}f{info.bytes_per_sample}")
     elif info.bits == 24:
-        b = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3)
+        b = raw.reshape(-1, 3)
         w = np.zeros((b.shape[0], 4), dtype=np.uint8)
         if info.little_endian:
             w[:, 1:] = b
-            x = (w.view("<i4")[:, 0] >> 8).astype(np.float64)
+            np.divide(w.view("<i4")[:, 0] >> 8, info.full_scale, out=out)
         else:
             w[:, :3] = b
-            x = (w.view(">i4")[:, 0] >> 8).astype(np.float64)
-        x /= info.full_scale
+            np.divide(w.view(">i4")[:, 0] >> 8, info.full_scale, out=out)
     else:
-        x = np.frombuffer(raw, dtype=f"{e}i{info.bytes_per_sample}").astype(np.float64)
-        x /= info.full_scale
-    return x.reshape(-1, info.channels)
+        np.divide(raw.view(f"{e}i{info.bytes_per_sample}"), info.full_scale, out=out)
+
+
+def decode(info: CafInfo, raw: bytes) -> np.ndarray:
+    """Raw interleaved bytes -> float64 array (frames, channels), full scale = 1.0."""
+    fb = info.frame_bytes
+    frames = len(raw) // fb
+    if frames * fb != len(raw):
+        raise ValueError(f"{len(raw)} bytes are not whole frames of {fb}")
+    src = np.frombuffer(raw, dtype=np.uint8)
+    out = np.empty((frames, info.channels))
+
+    def part(a: int, b: int) -> None:
+        _decode_part(info, src[a * fb: b * fb], out[a:b].reshape(-1))
+
+    over_rows(part, frames)
+    return out
 
 
 def quantise(x: np.ndarray, full_scale: float) -> tuple[np.ndarray, int]:
@@ -119,24 +134,38 @@ def quantise(x: np.ndarray, full_scale: float) -> tuple[np.ndarray, int]:
     return np.clip(q, lo, hi).astype(np.int32), clipped
 
 
+def _encode_part(info: CafInfo, flat: np.ndarray, out: np.ndarray) -> int:
+    """Flat float64 samples -> `out` (uint8, bytes_per_sample each). Returns the count
+    clipped."""
+    e = "<" if info.little_endian else ">"
+    if info.is_float:
+        out.view(f"{e}f{info.bytes_per_sample}")[:] = flat
+        return int(np.count_nonzero(np.abs(flat) > 1.0))
+    q, clipped = quantise(flat, info.full_scale)
+    if info.bits == 24:
+        if info.little_endian:
+            out.reshape(-1, 3)[:] = (q << 8).astype("<i4").view(np.uint8).reshape(-1, 4)[:, 1:]
+        else:
+            out.reshape(-1, 3)[:] = (q << 8).astype(">i4").view(np.uint8).reshape(-1, 4)[:, :3]
+    else:
+        out.view(f"{e}i{info.bytes_per_sample}")[:] = q
+    return clipped
+
+
 def encode(info: CafInfo, x: np.ndarray) -> tuple[bytes, int]:
     """float64 (frames, channels) -> raw bytes. Returns (bytes, clipped_sample_count).
 
     `x` must already include any dither; it is rounded and clipped here.
     """
-    e = "<" if info.little_endian else ">"
-    flat = x.reshape(-1)
-    if info.is_float:
-        clipped = int(np.count_nonzero(np.abs(flat) > 1.0))
-        return flat.astype(f"{e}f{info.bytes_per_sample}").tobytes(), clipped
-    q, clipped = quantise(flat, info.full_scale)
-    if info.bits == 24:
-        if info.little_endian:
-            b = (q << 8).astype("<i4").view(np.uint8).reshape(-1, 4)[:, 1:]
-        else:
-            b = (q << 8).astype(">i4").view(np.uint8).reshape(-1, 4)[:, :3]
-        return np.ascontiguousarray(b).tobytes(), clipped
-    return q.astype(f"{e}i{info.bytes_per_sample}").tobytes(), clipped
+    x = x.reshape(-1, info.channels)
+    fb = info.frame_bytes
+    out = np.empty(len(x) * fb, dtype=np.uint8)
+
+    def part(a: int, b: int) -> int:
+        return _encode_part(info, x[a:b].reshape(-1), out[a * fb: b * fb])
+
+    clipped = sum(over_rows(part, len(x)))
+    return out.tobytes(), clipped
 
 
 class CafStream:
