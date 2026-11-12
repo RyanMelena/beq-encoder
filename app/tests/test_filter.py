@@ -6,7 +6,7 @@ from scipy.signal import sosfilt
 
 from beq_encoder import caf, workers
 from beq_encoder.beqfilter import FilterJob, apply
-from beq_encoder.biquad import FilterSpec, design_sos, rbj
+from beq_encoder.biquad import FilterSpec, design_sos, rbj, sosfilt_channels
 
 from .helpers import make_signal
 from .helpers import write_caf
@@ -71,6 +71,28 @@ def test_rows_are_split_into_parts_that_cover_them_in_order():
         assert parts[0][0] == 0 and parts[-1][1] == rows
         assert all(p[1] == n[0] for p, n in zip(parts, parts[1:], strict=False))
         assert len(parts) <= max(1, workers.WORKERS)
+
+
+@pytest.mark.parametrize("ch", [1, 3])
+def test_a_channel_that_falls_silent_is_filtered_as_before_and_settles(ch):
+    """A second of audio, then silence. Block by block, every 24-bit sample is what one
+    plain sosfilt over the whole signal gives; and once the audio has died away the
+    filter is at rest (exactly zero), not left working on numbers too small to matter."""
+    fs, block = 48000, 1 << 16
+    sos = design_sos(FILTERS, fs)
+    x = np.zeros((8 * fs, ch))
+    x[:fs] = np.rint(0.1 * np.random.default_rng(9).standard_normal((fs, ch)) * 2**23) / 2**23
+    state = np.zeros((sos.shape[0], 2, ch))
+    blocks = []
+    for i in range(0, len(x), block):
+        y, state = sosfilt_channels(sos, x[i:i + block], state)
+        blocks.append(y)
+    y, want = np.concatenate(blocks), sosfilt(sos, x, axis=0)
+    assert np.array_equal(np.rint(y * 2**23), np.rint(want * 2**23))
+    assert np.abs(y - want).max() < 1e-20
+    assert np.abs(y[:fs]).max() > 0.1 and state.shape == (sos.shape[0], 2, ch)
+    assert not state.any() and not y[-fs:].any()
+    assert want[-fs:].any()  # left alone, the filter never comes to rest
 
 
 def test_design_expands_count():

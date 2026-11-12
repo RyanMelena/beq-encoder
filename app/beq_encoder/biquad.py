@@ -108,19 +108,44 @@ def response_db(filters: list[FilterSpec], freqs: np.ndarray, fs: float = 48000)
     return 20 * np.log10(np.maximum(np.abs(h), 1e-12))
 
 
+# A filter's state below this is zeroed. One 24-bit step is 1.2e-7 of full scale, so
+# nothing this small reaches a sample; float64's own rounding of the audio is far larger.
+QUIET_STATE = 1e-30
+# The state is looked at this often (frames). No BEQ filter decays from QUIET_STATE to the
+# subnormal range (278 decades) in a third of a second.
+SETTLE_FRAMES = 1 << 14
+
+
+def _filter(sosfilt, sos, x, state):
+    """sosfilt along axis 0 from `state`, a piece at a time, with what is left of the
+    state zeroed once it has decayed below QUIET_STATE.
+
+    When a channel falls silent the state decays towards zero but never gets there: it
+    reaches the subnormal numbers and stays, and a CPU works on those many times slower
+    than on ordinary ones (measured: a channel with silent stretches filtered 20 to 50
+    times slower than one without). An Atmos object is silent for much of a film."""
+    out = np.empty(x.shape)
+    for i in range(0, len(x), SETTLE_FRAMES):
+        out[i:i + SETTLE_FRAMES], state = sosfilt(sos, x[i:i + SETTLE_FRAMES], axis=0,
+                                                  zi=state)
+        state[np.abs(state) < QUIET_STATE] = 0.0
+    return out, state
+
+
 def sosfilt_channels(sos, x, zi):
     """scipy's sosfilt along axis 0 of (frames, channels) with state `zi`
     (sections, 2, channels), each channel in its own thread: sosfilt releases the GIL
-    and channels are independent, so the result is identical, only faster."""
+    and channels are independent, so the threads change nothing but the time taken.
+    A state that has decayed to nothing is zeroed (`_filter`), which no sample shows."""
     from scipy.signal import sosfilt  # imported on use: it adds ~0.7 s to start-up
 
     ch = x.shape[1] if x.ndim == 2 else 1
     if ch < 2 or len(x) < 4096:
-        return sosfilt(sos, x, axis=0, zi=zi)
+        return _filter(sosfilt, sos, x, zi)
     out = np.empty(x.shape)
 
     def one(c):  # the channel is taken out of the block and put back in its own thread too
-        out[:, c], state = sosfilt(sos, np.ascontiguousarray(x[:, c]), zi=zi[:, :, c])
+        out[:, c], state = _filter(sosfilt, sos, np.ascontiguousarray(x[:, c]), zi[:, :, c])
         return state
 
     return out, np.stack(list(POOL.map(one, range(ch))), axis=2)
