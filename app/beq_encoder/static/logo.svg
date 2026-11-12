@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="BEQ Encoder">
+  <!-- A spectrum whose bass bars are lifted by a low shelf. The three shades are shelves of rising gain,
+       drawn back to front so each has its own rounded top. The two dim shades are the amber at 28% and 55% over the tile. -->
+  <rect width="64" height="64" rx="14" fill="#161b21"/>
+  <g fill="#4f4228">
+    <rect x="6" y="16" width="4" height="34" rx="1"/>
+    <rect x="12" y="16" width="4" height="34" rx="1"/>
+    <rect x="18" y="18" width="4" height="32" rx="1"/>
+    <rect x="24" y="24" width="4" height="26" rx="1"/>
+    <rect x="30" y="32" width="4" height="18" rx="1"/>
+    <rect x="36" y="38" width="4" height="12" rx="1"/>
+  </g>
+  <g fill="#85672f">
+    <rect x="6" y="24" width="4" height="26" rx="1"/>
+    <rect x="12" y="24" width="4" height="26" rx="1"/>
+    <rect x="18" y="25" width="4" height="25" rx="1"/>
+    <rect x="24" y="29" width="4" height="21" rx="1"/>
+    <rect x="30" y="35" width="4" height="15" rx="1"/>
+  </g>
+  <g fill="#e0a63a">
+    <rect x="6" y="32" width="4" height="18" rx="1"/>
+    <rect x="12" y="32" width="4" height="18" rx="1"/>
+    <rect x="18" y="33" width="4" height="17" rx="1"/>
+    <rect x="24" y="35" width="4" height="15" rx="1"/>
+    <rect x="30" y="37" width="4" height="13" rx="1"/>
+    <rect x="36" y="39" width="4" height="11" rx="1"/>
+    <rect x="42" y="40" width="4" height="10" rx="1"/>
+    <rect x="48" y="40" width="4" height="10" rx="1"/>
+    <rect x="54" y="40" width="4" height="10" rx="1"/>
+  </g>
+</svg>

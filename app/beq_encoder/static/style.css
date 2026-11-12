@@ -45,7 +45,7 @@ code, .path { font-family: var(--mono); font-size: 13px; }
 .muted { color: var(--muted); } .small { font-size: var(--small); } .bad { color: var(--bad); } .good { color: var(--ok); }
 .top { display: flex; align-items: center; gap: 24px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .brand { font-weight: 700; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 8px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent-fill); box-shadow: 0 0 10px var(--accent-fill); }
+.logo { display: block; flex: none; }
 .top nav { display: flex; gap: 4px; flex: 1; }
 .top nav a, .tabs a { text-decoration: none; padding: 6px 10px; border-radius: 6px; color: var(--muted); }
 .top nav a:hover, .tabs a:hover { color: var(--text); text-decoration: none; }

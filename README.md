@@ -1,4 +1,4 @@
-# BEQ Encoder
+# <img src="app/beq_encoder/static/logo.svg" alt="" width="40" align="top"> BEQ Encoder
 
 [![Publish image](https://github.com/RyanMelena/beq-encoder/actions/workflows/publish.yml/badge.svg)](https://github.com/RyanMelena/beq-encoder/actions/workflows/publish.yml)
 ![Image: ghcr.io](https://img.shields.io/badge/image-ghcr.io%2Fryanmelena%2Fbeq--encoder-2496ED?logo=docker&logoColor=white)
