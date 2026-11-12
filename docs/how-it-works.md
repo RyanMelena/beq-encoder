@@ -73,6 +73,18 @@ The encoder dithers a channel-based track to 24 bits with TPDF dither.
 The encoder rounds an Atmos master to 24 bits without dither, an error of at most 0.5 LSB.
 The reason is DEE: under `--as-is`, DEE codes a rounded master bit for bit, but codes a dithered master 1 to 4 LSB off.
 
+## The gain estimate on the review page
+
+The review page shows an **Estimated gain** for each filter made for this film, and the channel that sets it.
+It is the gain the encode would apply at `TARGET_PEAK_DBFS`.
+The encoder computes it during Prepare from the 1 kHz analysis of the track, described in [What the designer receives](#what-the-designer-receives).
+It runs each filter over every channel of the analysis, and takes the highest filtered peak.
+A BEQ filter only changes the bass, so that peak is close to the one the encode measures.
+The estimate has two limits.
+Content above 500 Hz is not in the analysis, so a track whose loudest peak is in the treble can need more attenuation than the estimate says.
+For an Atmos track, the analysis is the channel presentation, while the encode filters the objects.
+If the analysis cannot be made, the review page shows no estimate, and the job still waits for you.
+
 ## Timing matches the source track
 
 The BEQ track starts at the same point on the timeline of the film as the source track.
