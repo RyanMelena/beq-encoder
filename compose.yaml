@@ -42,9 +42,6 @@ services:
       - beqforge-designer
     environment:
       TZ: ${TZ:-UTC}
-      # The DEE 6.7 folder as seen inside the container. The host folder is mounted at
-      # the same path below, so one .env value drives both.
-      DEE_PATH: ${DEE_PATH:?set DEE_PATH in .env}
       MEDIA_ROOTS: /media/movies             # colon-separated list of mounted roots
       DESIGNER_URL: http://beqforge-designer:8420
       TARGET_PEAK_DBFS: "-1.0"               # auto gain keeps the filtered peak at/below this
@@ -60,7 +57,7 @@ services:
       # WATCH: inotify                       # new files in a local bind mount: inotify | poll | off
       # ASSESS_AUDIO: "true"                 # background roll-off screen of films without BEQ
     volumes:
-      - ${DEE_PATH}:${DEE_PATH}:ro           # DEE 6.7 with the dthd-mac2linux dee_dthd_encoder
+      - ${DEE_PATH:?set DEE_PATH in .env}:/opt/dee:ro   # DEE 6.7 with the dthd-mac2linux dee_dthd_encoder
       - ./config:/config                     # sqlite db, logs, catalogue cache
       - ${WORK_DIR}:/work                    # DAMF/WAV intermediates + analyses (fast local disk)
       - ${MEDIA_DIR:?set MEDIA_DIR in .env}:/media/movies   # read-write: files are replaced in place

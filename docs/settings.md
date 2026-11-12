@@ -9,7 +9,7 @@ BEQ Encoder reads every setting from an environment variable.
 | Variable | Default | Meaning |
 |---|---|---|
 | `PUID`, `PGID` | `1000` | The user and the group that both containers run as. Use the owner of the media files. |
-| `DEE_PATH` | none, required | The host folder that holds the Linux DEE 6.7 tools and `dee_dthd_encoder`. Mounted read-only at the same path in the container. |
+| `DEE_PATH` | none, required | The host folder that holds the Linux DEE 6.7 tools and `dee_dthd_encoder`. Mounted read-only at `/opt/dee` in the container. |
 | `WORK_DIR` | none, required | The host folder for scratch files, mounted at `/work` in both containers. |
 | `MEDIA_DIR` | none, required | The host folder of the film library, mounted read-write at `/media/movies`. |
 | `BEQFORGE_VERSION` | `0.3.3` | The image tag of `beqforge-designer`. |
@@ -24,7 +24,7 @@ Set these variables in the `environment` block of the `beq-encoder` service in `
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DEE_PATH` | `/opt/dee` | The folder that holds `dee_dthd_encoder`, as seen in the container. |
+| `DEE_PATH` | `/opt/dee` | The folder that holds `dee_dthd_encoder`, as seen in the container. `compose.yaml` mounts the DEE folder there. If you change this value, change the mount target too. |
 | `DEE_SHIM` | `/usr/local/bin/dee_shim` | The path of dee_shim. |
 | `TARGET_PEAK_DBFS` | `-1.0` | The peak of the filtered track, which the automatic gain meets on every route. |
 | `MAX_CONCURRENT_JOBS` | `1` | The number of jobs that run at once. |
