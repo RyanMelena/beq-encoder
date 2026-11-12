@@ -417,11 +417,13 @@ def test_submitted_paths_are_normalised(app, monkeypatch):
     started: list[dict] = []
     monkeypatch.setattr(web.scanner, "start", lambda **kw: started.append(kw) or True)
     path = d / "Test Movie (2020) lpcm20.mkv"
+    # The start-up scan can also call start() from its own thread, so look for the
+    # request's call among the recorded ones instead of taking the last one.
     r = c.post("/media/add", data={"path": str(d / "sub" / ".." / path.name)},
                follow_redirects=False)
-    assert r.status_code == 303 and started[-1]["files"] == [path]
+    assert r.status_code == 303 and {"force": True, "files": [path]} in started
     r = c.post("/scan", data={"folder": f"{d}/./sub/.."}, follow_redirects=False)
-    assert r.status_code == 303 and started[-1]["root"] == d
+    assert r.status_code == 303 and any(kw.get("root") == d for kw in started)
 
 
 def test_a_designed_track_is_read_from_its_tags_whatever_its_name(app, monkeypatch):
