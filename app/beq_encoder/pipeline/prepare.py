@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from dataclasses import asdict
 
-from .. import analysis, designer, media, support
+import numpy as np
+
+from .. import analysis, designer, media, preflight, support
 from .job import Job, source_pin
 from .processes import JobFailed
 
@@ -60,17 +63,61 @@ def run_prepare(job: Job) -> dict:
             return result
         result.update(outcome="awaiting", message=f"{len(exact)} catalogue entr"
                       f"{'y' if len(exact) == 1 else 'ies'} for this track; pick one")
-        return result
-
-    result["design"] = d = _design(job, track, probe, film)
-    if d["declined"]:
-        result.update(outcome="no_beq",
-                      message=f"Designer declined: {d['decline_reason']}"
-                              + (f" ({d['decline_message']})" if d["decline_message"] else ""))
     else:
+        result["design"] = d = _design(job, track, probe, film)
+        if d["declined"]:
+            result.update(outcome="no_beq",
+                          message=f"Designer declined: {d['decline_reason']}"
+                                  + (f" ({d['decline_message']})" if d["decline_message"]
+                                     else ""))
+            return result
         result.update(outcome="awaiting",
                       message=f"{len(d['candidates'])} designer candidate(s); pick one")
+    entries = [c["entry"] for c in result["catalogue"]]
+    entries += result["design"]["candidates"] if result["design"] else []
+    result["predicted"] = _predict(job, track, probe, entries)
     return result
+
+
+def _analysis_key(job: Job, track: media.AudioTrack) -> str:
+    st = job.src.stat()
+    return analysis.cache_key(job.src, st.st_size, st.st_mtime, track.track_id)
+
+
+def _predict(job: Job, track: media.AudioTrack, probe: media.ProbeResult,
+             entries: list[dict]) -> dict:
+    """The predicted filtered peak of each entry with filters (preflight.predict). An
+    estimate never stops the review: when it cannot be made, there is none."""
+    filters = {e["digest"]: e["filters"] for e in entries if e.get("filters")}
+    if not filters:
+        return {}
+    key = _analysis_key(job, track)
+    try:
+        with analysis.in_use(key):
+            meta = _analyse(job, track, probe, key)
+            t0 = time.monotonic()
+            predicted = preflight.predict(_estimate_blocks(job, meta), meta["channels"], filters)
+    except Exception as exc:
+        job.procs.check()  # a cancel kills the decode, which then fails: that is the cancel
+        job.log(f"Gain estimate: not made ({exc})")
+        return {}
+    labels = {e["digest"]: e["label"] for e in entries}
+    for digest, p in predicted.items():
+        job.log(f"Gain estimate {labels[digest]}: filtered peak {p['peak_dbfs']:+.2f} dBFS "
+                f"on {p['channel']}")
+    job.log(f"Gain estimate: {len(predicted)} of {len(filters)} filters in "
+            f"{time.monotonic() - t0:.1f} s")
+    return predicted
+
+
+def _estimate_blocks(job: Job, meta: dict) -> Iterator[np.ndarray]:
+    stage = "Estimating the gain of each filter"
+    job.progress(stage, 0)
+    done = 0
+    for x in analysis.read_channels(job.s.work_dir, meta):
+        yield x
+        done += len(x)
+        job.checked_progress(stage, 100 * done / meta["frames"])
 
 
 def _analyse(job: Job, track: media.AudioTrack, probe: media.ProbeResult, key: str) -> dict:
@@ -99,8 +146,7 @@ def _design(job: Job, track: media.AudioTrack, probe: media.ProbeResult, film: d
     if not h["ok"]:
         raise JobFailed(h["problems"][0])
     release = str(h.get("designer_release") or "")
-    st = job.src.stat()
-    key = analysis.cache_key(job.src, st.st_size, st.st_mtime, track.track_id)
+    key = _analysis_key(job, track)
     with analysis.in_use(key):  # the designer reads the WAV by reference until it answers
         meta = _analyse(job, track, probe, key)
         bm = None

@@ -82,6 +82,20 @@ def _wav_header(channels: int, frames: int) -> bytes:
     )
 
 
+def read_channels(work_root: Path, meta: dict) -> Iterator[np.ndarray]:
+    """Blocks (frames, channels) of the channel columns of an extraction (`meta` as
+    `extract` writes it), without the mono mix."""
+    ch = len(meta["channels"])
+    cols = len(meta["columns"])
+    with open(work_root / meta["wav"], "rb") as fh:
+        fh.seek(len(_wav_header(cols, 0)))
+        left = meta["frames"]
+        while left:
+            n = min(CHUNK_FRAMES, left)
+            yield np.frombuffer(fh.read(n * 8 * cols), "<f8").reshape(n, cols)[:, :ch]
+            left -= n
+
+
 def load_cached(work_root: Path, key: str) -> dict | None:
     meta = work_root / "analysis" / key / "meta.json"
     try:

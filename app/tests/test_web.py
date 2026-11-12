@@ -181,6 +181,8 @@ def test_run_review_choose_encode(app):
     assert c.post(f"/jobs/{job_id}/encode", data={"digest": rejected, "format": "flac"}
                   ).status_code == 400
     digest = j["prepare"]["design"]["candidates"][0]["digest"]
+    assert digest in j["prepare"]["predicted"] and rejected not in j["prepare"]["predicted"]
+    assert re.search(r"<dt>Estimated gain</dt><dd>about -\d+ dB · set by [LR]</dd>", page)
     r = c.post(f"/jobs/{job_id}/encode", data={"digest": digest, "format": "flac",
                                                 "replace_existing_beq": "on"},
                follow_redirects=False)
@@ -306,6 +308,17 @@ def _awaiting(c, web, path):
     assert row["status"] == "awaiting", row["message"]
     j = web._job_dict(web.db.one("SELECT * FROM jobs WHERE id=?", (job_id,)))
     return job_id, j["prepare"]["design"]["candidates"][0]["digest"]
+
+
+def test_a_job_prepared_before_gain_estimates_still_shows_its_choices(app):
+    c, web, d = app
+    job_id, _ = _awaiting(c, web, d / "Test Movie (2020) lpcm20.mkv")
+    prep = json.loads(web.db.one("SELECT prepare_json FROM jobs WHERE id=?", (job_id,))["prepare_json"])
+    del prep["predicted"]
+    web.db.update_job(job_id, prepare_json=json.dumps(prep))
+    r = c.get(f"/jobs/{job_id}")
+    assert r.status_code == 200 and "Encode with this filter" in r.text
+    assert "Estimated gain" not in r.text
 
 
 def test_two_choices_of_one_job_queue_it_once(app, monkeypatch):

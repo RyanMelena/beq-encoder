@@ -2,7 +2,8 @@
 
 prepare:  probe -> best track (or the one picked) -> catalogue match for that track's
           type -> if none: 1 kHz analysis + beqforge designer -> candidates for review
-          (or "no BEQ": a catalogue "no filters" record, or the designer declining)
+          (or "no BEQ": a catalogue "no filters" record, or the designer declining);
+          for review, each filter's gain estimated from the 1 kHz analysis (preflight)
 
 encode:   the chosen filter on the chosen track, by route (support.Plan):
             damf (TrueHD Atmos):  truehdd -> DAMF -> BEQ into a second DAMF (the first is

@@ -660,6 +660,7 @@ def _choices(job: dict, q: str = "") -> list[dict]:
     candidates, then other catalogue entries for the film, then search results."""
     prep = job["prepare"] or {}
     tr = prep.get("track") or {}
+    predicted = prep.get("predicted") or {}
     out: list[dict] = []
     seen: set[str] = set()
 
@@ -668,7 +669,8 @@ def _choices(job: dict, q: str = "") -> list[dict]:
             return
         seen.add(entry["digest"])
         out.append({"entry": entry, "group": group, "tag": CHOICE_TAGS[group], "note": note,
-                    "selectable": bool(entry.get("filters")) and not entry.get("rejected")})
+                    "selectable": bool(entry.get("filters")) and not entry.get("rejected"),
+                    "estimate": _estimated_gain(predicted.get(entry["digest"]))})
 
     for c in prep.get("catalogue", []):
         if c["match"] == "exact":
@@ -687,6 +689,17 @@ def _choices(job: dict, q: str = "") -> list[dict]:
             m = track_match(en.audio_types, tr.get("kind", ""), tr.get("layout_label", ""))
             add(en.to_dict(), "search", "this track" if m == "exact" else "search result")
     return out
+
+
+def _estimated_gain(predicted: dict | None) -> str:
+    """The gain an encode at the default target peak is expected to apply, from a predicted
+    filtered peak (preflight.predict); empty without a prediction."""
+    if not predicted:
+        return ""
+    gain = min(0.0, S.default_target_peak_dbfs - predicted["peak_dbfs"])
+    if gain > -0.5:
+        return "little or none"
+    return f"about {gain:+.0f} dB · set by {predicted['channel']}"
 
 
 LABELS = {"flac": "FLAC 24-bit (test only: not a bitstream)"}

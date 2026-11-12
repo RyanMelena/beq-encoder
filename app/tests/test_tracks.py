@@ -680,6 +680,28 @@ def test_prepare_refuses_to_guess_when_the_catalogue_has_not_loaded(env, fake_de
     assert r["outcome"] == "awaiting" and len(fake_designer.requests) == 1
 
 
+def test_prepare_estimates_every_catalogue_filter_and_never_fails_for_it(env, fake_designer,
+                                                                          tmp_path):
+    s, place, tmp = env
+    lpcm = {**CAT[0], "audioTypes": ["LPCM 2.0"], "author": "a4", "digest": "lpcm20"}
+    p = tmp_path / "with-lpcm.json"
+    p.write_text(json.dumps([*CAT, lpcm]))
+    cat = catalogue.Catalogue(p, "", 9999)
+    cat.load()
+    path = place("lpcm20")
+    ffmpeg = s.ffmpeg
+    s.ffmpeg = str(_exe(tmp_path / "ffmpeg", "#!/bin/sh\necho 'no decoder' >&2\nexit 1\n"))
+    r, _ = _run(s, path, {"phase": "prepare"}, tmp, cat)
+    assert r["outcome"] == "awaiting" and r["predicted"] == {}
+    assert "Gain estimate: not made" in (tmp / "job.log").read_text()
+    s.ffmpeg = ffmpeg
+    r, stages = _run(s, path, {"phase": "prepare"}, tmp, cat)
+    assert r["outcome"] == "awaiting" and r["design"] is None and not fake_designer.requests
+    assert set(r["predicted"]) == {"lpcm20", "atmos1", "ddpa"}  # exact, related and other
+    assert r["predicted"]["lpcm20"]["channel"] in ("L", "R")
+    assert ("Estimating the gain of each filter", 100.0) in stages
+
+
 def _cached_analysis(root, key, mtime):
     d = root / "analysis" / key
     d.mkdir(parents=True)

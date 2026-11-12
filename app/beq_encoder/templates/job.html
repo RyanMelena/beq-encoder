@@ -42,6 +42,7 @@
             <dl class="kv facts">
               <dt>Confidence</dt><dd>{% if e.confidence is not none %}{{ '%.0f'|format(e.confidence * 100) }} of 100{% else %}{{ dash }}{% endif %}</dd>
               <dt>Gain reduction</dt><dd>{% if e.gain_reduction_db is none %}{{ dash }}{% elif e.gain_reduction_db|abs < 0.05 %}none needed{% else %}{{ e.gain_reduction_db|dbs }}{% endif %}</dd>
+              {% if c.estimate %}<dt>Estimated gain</dt><dd>{{ c.estimate }}</dd>{% endif %}
               <dt>Average fit error</dt><dd>{% if e.residual_rms_db is not none %}{{ '%.1f'|format(e.residual_rms_db) }} dB{% else %}{{ dash }}{% endif %}</dd>
               {% if e.channel_scope %}<dt>Channels</dt><dd>{{ e.channel_scope }}</dd>{% endif %}
             </dl>
@@ -53,6 +54,7 @@
               {% if e.created_at %}<dt>Added</dt><dd>{{ e.created_at|day }}</dd>{% endif %}
               {% if e.updated_at and (e.updated_at|day) != (e.created_at|day) %}<dt>Updated</dt><dd>{{ e.updated_at|day }}</dd>{% endif %}
               {% if e.mv and e.mv != '0' %}<dt>Volume offset</dt><dd>{{ e.mv }} dB</dd>{% endif %}
+              {% if c.estimate %}<dt>Estimated gain</dt><dd>{{ c.estimate }}</dd>{% endif %}
             </dl>
             {% if e.warning %}<div class="caution"><span class="badge warn" data-sym="⚠">Warning</span> {{ e.warning }}</div>{% endif %}
             {% if e.note %}<div>{{ e.note }}</div>{% endif %}
