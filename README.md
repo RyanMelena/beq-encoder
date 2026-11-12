@@ -94,7 +94,7 @@ Open `http://<host>:8080`. If the encoder cannot use your DEE folder, a banner a
 
 ## Use it
 
-1. Open a film from the **Library** page. The **BEQ candidates** view lists the films that BEQ can help.
+1. Open a film from the **Library** page. The **BEQ candidates** view lists the films where the catalogue has a filter or the bass check found roll-off.
 2. Click **Run BEQ**. The encoder looks for a filter in the catalogue, then asks the designer.
 3. Compare the candidates on the job page, pick one, and click **Encode with this filter**. If the film is better without BEQ, click **Don't add BEQ**.
 4. Wait for the job. The film page then shows the BEQ track with its before and after charts.

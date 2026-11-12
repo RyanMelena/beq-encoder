@@ -252,7 +252,9 @@ FILE_PROBLEM = "\u26a0\ufe0e"
 
 # Every verdict a film can carry: its words, symbol and pill class, the same on every screen.
 FILM_STATE = {
-    "candidate": ("BEQ candidate", "\u25c6", "ok"),
+    # A BEQ candidate's pill says why it is one; "BEQ candidates" is only the Library view.
+    "catalogue_filter": ("Catalogue filter", "\u25c6", "ok"),
+    "rolloff": ("Bass roll-off", "\u25c6", "ok"),
     "maybe": ("Worth a look", "\u25c7", "maybe"),
     "current": ("BEQ up to date", "\u2713", "ok"),
     "stale": ("Stale BEQ", "\u21ba", "stale"),
@@ -335,7 +337,7 @@ def film_verdict(a: dict | None, ro: dict | None, last_job: str | None = None) -
         note = f"Catalogue filter by {authors}."
         if bass == "clear":
             note += f" Bass rolls off{below}."
-        return _answer("candidate", note, "The catalogue has a filter for this film",
+        return _answer("catalogue_filter", note, "The catalogue has a filter for this film",
                        f"{n} entr{'y' if n == 1 else 'ies'} for {track}, by {authors}.", hint)
     if last_job == "no_beq":
         if candidate:
@@ -346,8 +348,8 @@ def film_verdict(a: dict | None, ro: dict | None, last_job: str | None = None) -
                        else "The last job found nothing for a BEQ to correct.",
                        "This film doesn't need a BEQ", "You can still design a filter.", hint)
     if candidate == "rolloff":
-        return _answer("candidate", f"Bass rolls off{below}, -{ro['depth15_db']:.0f} dB at 15 Hz.",
-                       "The bass looks rolled off, so a BEQ should help",
+        return _answer("rolloff", f"Bass rolls off{below}, -{ro['depth15_db']:.0f} dB at 15 Hz.",
+                       "The bass looks rolled off, so a BEQ may help",
                        (f"The catalogue only has filters for another track of this film, "
                         f"but you can design one for {track}." if kind == "other_track" else no_entry),
                        hint)

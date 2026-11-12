@@ -235,6 +235,13 @@ def test_a_film_row_gets_one_verdict(app):
                                  "slope_db_oct": 24, "slope_at_hz": 22, "plateau_dbfs": -31,
                                  "seconds": 300}, "no_beq")
     assert declined["state"] == "maybe"
+    clear = {"verdict": "clear", "corner_hz": 27.0, "depth15_db": 21.0, "slope_db_oct": 24,
+             "slope_at_hz": 22, "plateau_dbfs": -31, "seconds": 300}
+    rolled = web.film_verdict({"best": best, "catalogue": "none", "candidate": "rolloff"}, clear)
+    assert web.FILM_STATE[rolled["state"]][0] == "Bass roll-off"
+    listed = web.film_verdict({"best": best, "catalogue": "exact", "candidate": "catalogue",
+                               "authors": ["a1"], "catalogue_count": 1}, none)
+    assert web.FILM_STATE[listed["state"]][0] == "Catalogue filter"
     sicario = web.film_verdict({"best": best, "catalogue": "none", "candidate": None},
                                {"verdict": "error", "error": "ffmpeg exited 1"})
     assert sicario["state"] == "check_failed" and web.FILM_STATE["check_failed"][2] != "bad"
