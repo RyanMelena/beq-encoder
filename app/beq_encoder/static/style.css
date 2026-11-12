@@ -359,14 +359,14 @@ p.path.whole { word-break: normal; overflow-wrap: anywhere; }
 .actions button.danger { background: transparent; color: var(--bad); border: 1px solid var(--bad); }
 .actions button.danger:hover { background: var(--hover); }
 /* Docked to the window rather than sticky in the form, so it leaves no empty slot in the page; main reserves its height instead. */
-.approve-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+.encode-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 10px max(20px, calc(50% - 580px)); background: var(--panel); border-top: 1px solid var(--field-line); }
-main:has(.approve-bar) { padding-bottom: 88px; }
-html:has(.approve-bar) { scroll-padding-bottom: 88px; }
-@media (max-width: 700px) { .approve-bar { padding-inline: 16px; } }
-.approve-bar p { display: flex; flex-direction: column; min-width: 0; margin: 0; }
-.approve-bar b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.approve-bar button { flex: none; }
+main:has(.encode-bar) { padding-bottom: 88px; }
+html:has(.encode-bar) { scroll-padding-bottom: 88px; }
+@media (max-width: 700px) { .encode-bar { padding-inline: 16px; } }
+.encode-bar p { display: flex; flex-direction: column; min-width: 0; margin: 0; }
+.encode-bar b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.encode-bar button { flex: none; }
 .settings-grid .go { margin: 0; }
 table.choices .filters { color: var(--text); font-size: 13px; line-height: 1.5; }
 .bands { display: grid; grid-template-columns: repeat(5, max-content); column-gap: 10px; font-variant-numeric: tabular-nums; }

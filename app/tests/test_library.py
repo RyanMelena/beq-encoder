@@ -691,7 +691,7 @@ def test_a_job_that_cannot_get_a_thread_goes_back_in_the_queue(job_env, monkeypa
     assert refused == [f"job-{job_id}"]
 
 
-def test_a_prepared_job_whose_log_cannot_be_written_still_awaits_approval(job_env):
+def test_a_prepared_job_whose_log_cannot_be_written_is_still_ready_for_review(job_env):
     q, db, plan = job_env
     plan["run"] = lambda: {"phase": "prepare", "outcome": "awaiting", "message": "pick one"}
     job_id = db.create_job(None, "/media/a.mkv", {"phase": "prepare"})

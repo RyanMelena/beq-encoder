@@ -9,13 +9,13 @@
 
 It is a self-hosted web service.
 The filter comes from the [BEQCatalogue](https://beqcatalogue.readthedocs.io/), or from the [beqforge](https://github.com/3ll3d00d/beqforge) designer when the catalogue has no entry for the track.
-You approve every filter before the encoder touches a file.
+You decide, film by film, whether to use a filter; nothing touches a file until you choose one.
 
 ```mermaid
 flowchart LR
     A[Library scan] --> B[Run BEQ]
     B --> C{Filter}
-    C -->|catalogue entry| D[You approve]
+    C -->|catalogue entry| D[You choose a filter<br>or none]
     C -->|no entry| E[beqforge designs one] --> D
     D --> F[Filter and encode<br>TrueHD]
     F --> G[Check every sample]
@@ -96,7 +96,7 @@ Open `http://<host>:8080`. If the encoder cannot use your DEE folder, a banner a
 
 1. Open a film from the **Library** page. The **BEQ candidates** view lists the films that BEQ can help.
 2. Click **Run BEQ**. The encoder looks for a filter in the catalogue, then asks the designer.
-3. Compare the candidates on the job page, pick one, and click **Approve & queue**.
+3. Compare the candidates on the job page, pick one, and click **Encode with this filter**. If the film is better without BEQ, click **Don't add BEQ**.
 4. Wait for the job. The film page then shows the BEQ track with its before and after charts.
 
 ## Documentation

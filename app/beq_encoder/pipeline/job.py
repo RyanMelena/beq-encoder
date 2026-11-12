@@ -31,8 +31,8 @@ TRACK_IDENTITY = ("track_id", "kind", "codec", "channels", "layout")
 
 
 def source_pin(stamp: FileStamp, track: media.AudioTrack) -> dict:
-    """What a job read, carried from prepare through approval to the encode and any
-    retry, so a filter approved for one master is never applied to another."""
+    """What a job read, carried from prepare through the filter choice to the encode and
+    any retry, so a filter chosen for one master is never applied to another."""
     return {"size": stamp.size, "mtime_ns": stamp.mtime_ns,
             "track": {k: getattr(track, k) for k in TRACK_IDENTITY}}
 

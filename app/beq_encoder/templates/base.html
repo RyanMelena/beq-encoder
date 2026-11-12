@@ -15,7 +15,7 @@
     {% set path = request.url.path %}
     {% set tab = tab|default('jobs' if path.startswith('/jobs') else 'library' if path in ('/', '/scan') or path.startswith('/media') else '') %}
     <a href="/"{% if tab == 'library' %} class="on" aria-current="page"{% endif %}>Library</a>
-    <a href="/jobs"{% if tab == 'jobs' %} class="on" aria-current="page"{% endif %}>Jobs <span id="active-count" class="pill" title="Jobs queued, running or awaiting approval" hidden></span></a>
+    <a href="/jobs"{% if tab == 'jobs' %} class="on" aria-current="page"{% endif %}>Jobs <span id="active-count" class="pill" title="Jobs queued, running or ready for review" hidden></span></a>
   </nav>
   <span class="ver">v{{ version }}</span>
 </header>

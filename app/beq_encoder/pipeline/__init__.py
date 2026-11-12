@@ -1,10 +1,10 @@
 """One BEQ job, in two phases.
 
 prepare:  probe -> best track (or the one picked) -> catalogue match for that track's
-          type -> if none: 1 kHz analysis + beqforge designer -> candidates for approval
+          type -> if none: 1 kHz analysis + beqforge designer -> candidates for review
           (or "no BEQ": a catalogue "no filters" record, or the designer declining)
 
-encode:   the approved filter on the chosen track, by route (support.Plan):
+encode:   the chosen filter on the chosen track, by route (support.Plan):
             damf (TrueHD Atmos):  truehdd -> DAMF -> BEQ into a second DAMF (the first is
                                   kept for the check) -> DEE TrueHD Atmos -> Atmos check
             joc (DD+ Atmos):      Cavern -> DAMF, then as damf

@@ -19,7 +19,7 @@
 {% if active %}
   {% set waiting = active.status == 'awaiting' %}
   <section class="note outcome s-{{ active.status }}">
-    <div class="outcome-text"><h2 class="headline">{{ status_badge(active.status) }} {{ 'A filter is waiting for your approval' if waiting else 'A BEQ job is in progress for this film' }}</h2></div>
+    <div class="outcome-text"><h2 class="headline">{{ status_badge(active.status) }} {{ 'Filters are ready for review' if waiting else 'A BEQ job is in progress for this film' }}</h2></div>
     <div class="actions"><a class="btn{{ ' ghost' if not waiting }}" href="/jobs/{{ active.id }}">{{ 'Review the filters' if waiting else 'Open job #' ~ active.id }}</a></div>
   </section>
 {% elif failure %}
@@ -41,7 +41,7 @@
   {% elif has_beq and a %}
     {% if a.stale %}
     {{ headline('stale', "The BEQ in this file is out of date") }}
-    <p>{% if stale_matters %}<b>Worth replacing.</b> It still plays, but it may not sound as it should. Run BEQ again below and approve a filter to replace it.{% else %}<b>Optional to replace.</b> The BEQ in this file still works as it is. Run BEQ again below if you want the newer filter.{% endif %}</p>
+    <p>{% if stale_matters %}<b>Worth replacing.</b> It still plays, but it may not sound as it should. Run BEQ again below and choose a filter to replace it.{% else %}<b>Optional to replace.</b> The BEQ in this file still works as it is. Run BEQ again below if you want the newer filter.{% endif %}</p>
     {% else %}
     {{ headline('current', "This film already has a BEQ") }}
     {% endif %}
@@ -122,7 +122,7 @@
   {% endif %}
   <form method="post" action="/media/{{ m.id }}/rescan" class="inline"><button class="ghost">Rescan file</button></form>
 </div>
-{% if best and not active %}<p class="small muted">Run BEQ looks for a filter for the track you selected. It checks the BEQ Catalogue first; if the catalogue has none, the automatic designer measures the track's bass and designs one. Nothing changes until you approve a filter.{% if has_beq %} Running it again makes a new BEQ track that replaces this film's current one when you approve it; you can choose to keep both at that step.{% endif %}</p>{% endif %}
+{% if best and not active %}<p class="small muted">Run BEQ looks for a filter for the track you selected. It checks the BEQ Catalogue first; if the catalogue has none, the automatic designer measures the track's bass and designs one. Nothing changes until you choose a filter, and you can always leave the film as it is.{% if has_beq %} Running it again makes a new BEQ track that replaces this film's current one if you choose a filter; you can choose to keep both at that step.{% endif %}</p>{% endif %}
 <p class="small muted">Rescan file reads the file again and updates its audio tracks and BEQ status on this page. It does not change the file.</p>
 {% if best %}
 <details class="add">

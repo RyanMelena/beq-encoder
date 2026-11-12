@@ -48,7 +48,7 @@ def _run_to_outcome(runner: JobRunner) -> tuple[dict, str | None]:
             awaiting = result["outcome"] == "awaiting"
             return dict(
                 status=result["outcome"], percent=None,
-                stage={"awaiting": "Awaiting approval", "no_beq": "No BEQ"}.get(
+                stage={"awaiting": "Ready for review", "no_beq": "No BEQ"}.get(
                     result["outcome"], "Not supported"),
                 prepare_json=json.dumps(result), result_json=None,
                 finished_at=None if awaiting else time.time(), message=result["message"],

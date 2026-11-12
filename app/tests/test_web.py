@@ -1,5 +1,5 @@
-"""The web flow through the real routes and job queue: Run -> awaiting approval ->
-Approve & queue -> done, and Run -> no BEQ. Fake designer and DEE as elsewhere."""
+"""The web flow through the real routes and job queue: Run -> ready for review ->
+Encode with this filter -> done, and Run -> no BEQ. Fake designer and DEE as elsewhere."""
 
 import importlib
 import json
@@ -155,7 +155,7 @@ def test_add_file_scans_in_the_background(app):
     assert "Bass check" in c.get(f"/media/{mid}").text or "catalogue" in c.get(f"/media/{mid}").text
 
 
-def test_run_review_approve_encode(app):
+def test_run_review_choose_encode(app):
     c, web, d = app
     path = d / "Test Movie (2020) lpcm20.mkv"
     mid = _media_id(web, path)
@@ -166,17 +166,18 @@ def test_run_review_approve_encode(app):
     row = _wait(web, job_id, {"awaiting", "failed", "no_beq"})
     assert row["status"] == "awaiting", row["message"]
     page = c.get(f"/jobs/{job_id}").text
-    assert "beqforge 9.9.9 flatten" in page and "Approve &amp; queue" in page
+    assert "beqforge 9.9.9 flatten" in page and "Encode with this filter" in page
+    assert "Ready for review" in page and "Don&#39;t add BEQ" in page and "Cancel job" not in page
     assert "introduces a cliff" in page  # the rejected design, review only
     assert 'value="flac"' in page and 'value="ddp"' not in page
-    # a second Run is refused while one is awaiting approval
+    # a second Run is refused while one is ready for review
     assert c.post(f"/media/{mid}/run", data={}).status_code == 409
     j = web._job_dict(web.db.one("SELECT * FROM jobs WHERE id=?", (job_id,)))
     rejected = j["prepare"]["design"]["rejected"][0]["digest"]
-    assert c.post(f"/jobs/{job_id}/approve", data={"digest": rejected, "format": "flac"}
+    assert c.post(f"/jobs/{job_id}/encode", data={"digest": rejected, "format": "flac"}
                   ).status_code == 400
     digest = j["prepare"]["design"]["candidates"][0]["digest"]
-    r = c.post(f"/jobs/{job_id}/approve", data={"digest": digest, "format": "flac",
+    r = c.post(f"/jobs/{job_id}/encode", data={"digest": digest, "format": "flac",
                                                 "replace_existing_beq": "on"},
                follow_redirects=False)
     assert r.status_code == 303
@@ -210,7 +211,7 @@ def test_run_ends_no_beq_for_catalogue_no_filter_entry(app):
     row = web.db.one("SELECT * FROM jobs WHERE id=?", (job_id,))
     assert row["status"] == "awaiting"
     page = c.get(f"/jobs/{job_id}?q=Test+Movie").text
-    assert "Approve &amp; queue" in page and "<b>Test Movie (2020)</b>" in page
+    assert "Encode with this filter" in page and "<b>Test Movie (2020)</b>" in page
     assert not re.search(r'name="digest" value="[^"]+" checked', page)  # no silent default
     assert c.post(f"/jobs/{job_id}/review").status_code == 409
     r = c.post(f"/jobs/{job_id}/design", follow_redirects=False)
@@ -296,7 +297,7 @@ def _awaiting(c, web, path):
     return job_id, j["prepare"]["design"]["candidates"][0]["digest"]
 
 
-def test_two_approvals_of_one_job_queue_it_once(app, monkeypatch):
+def test_two_choices_of_one_job_queue_it_once(app, monkeypatch):
     from fastapi.testclient import TestClient
 
     c, web, d = app
@@ -311,13 +312,13 @@ def test_two_approvals_of_one_job_queue_it_once(app, monkeypatch):
     monkeypatch.setattr(web, "_choices", choices)
     codes = []
 
-    def approve():
-        r = TestClient(web.app).post(f"/jobs/{job_id}/approve",
+    def choose():
+        r = TestClient(web.app).post(f"/jobs/{job_id}/encode",
                                      data={"digest": digest, "format": "flac"},
                                      follow_redirects=False)
         codes.append(r.status_code)
 
-    threads = [threading.Thread(target=approve) for _ in range(2)]
+    threads = [threading.Thread(target=choose) for _ in range(2)]
     for t in threads:
         t.start()
     for t in threads:
@@ -338,7 +339,7 @@ def test_two_approvals_of_one_job_queue_it_once(app, monkeypatch):
 def test_an_invalid_gain_is_rejected_and_the_job_keeps_waiting(app, form):
     c, web, d = app
     job_id, digest = _awaiting(c, web, d / "Test Movie (2020) lpcm20.mkv")
-    r = c.post(f"/jobs/{job_id}/approve", data={"digest": digest, "format": "flac", **form},
+    r = c.post(f"/jobs/{job_id}/encode", data={"digest": digest, "format": "flac", **form},
                follow_redirects=False)
     assert r.status_code == 400
     assert web.db.one("SELECT status FROM jobs WHERE id=?", (job_id,))["status"] == "awaiting"
@@ -363,28 +364,31 @@ def test_only_one_active_job_per_file_through_every_route(app):
     assert n == 2
 
 
-def test_discarding_an_awaiting_job_works(app):
+def test_not_adding_beq_leaves_the_film_as_a_decision(app):
     c, web, d = app
     job_id, _ = _awaiting(c, web, d / "Test Movie (2020) lpcm20.mkv")
     assert c.post(f"/jobs/{job_id}/cancel", follow_redirects=False).status_code == 303
     row = web.db.one("SELECT status, stage FROM jobs WHERE id=?", (job_id,))
     assert (row["status"], row["stage"]) == ("cancelled", "Discarded")
+    text = " ".join(re.sub(r"<[^>]+>", "", c.get(f"/jobs/{job_id}").text).split())
+    assert "Left without BEQ" in text and "You chose not to add BEQ" in text
+    assert "Stopped before it finished" not in text
 
 
-def test_approve_and_retry_are_bound_to_the_file_the_job_read(app):
+def test_encode_and_retry_are_bound_to_the_file_the_job_read(app):
     c, web, d = app
     path = d / "Test Movie (2020) lpcm20.mkv"
     job_id, digest = _awaiting(c, web, path)
     original = path.read_bytes()
-    path.write_bytes(original + b"replaced while waiting for approval")
-    assert c.post(f"/jobs/{job_id}/approve", data={"digest": digest, "format": "flac"},
+    path.write_bytes(original + b"replaced while waiting for review")
+    assert c.post(f"/jobs/{job_id}/encode", data={"digest": digest, "format": "flac"},
                   follow_redirects=False).status_code == 409
     assert web.db.one("SELECT status FROM jobs WHERE id=?", (job_id,))["status"] == "awaiting"
 
     path.write_bytes(original)
     c.post(f"/jobs/{job_id}/cancel", follow_redirects=False)
     job_id, digest = _awaiting(c, web, path)
-    assert c.post(f"/jobs/{job_id}/approve", data={"digest": digest, "format": "flac"},
+    assert c.post(f"/jobs/{job_id}/encode", data={"digest": digest, "format": "flac"},
                   follow_redirects=False).status_code == 303
     assert _wait(web, job_id, {"done", "failed"})["status"] == "done"
 

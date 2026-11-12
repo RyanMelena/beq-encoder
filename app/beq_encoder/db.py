@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     path TEXT NOT NULL,
     status TEXT NOT NULL,          -- queued | running | awaiting | no_beq | unsupported | done | failed | cancelled
     stage TEXT, percent REAL,
-    params_json TEXT NOT NULL,     -- phase + track (+ approved filter + encode settings)
+    params_json TEXT NOT NULL,     -- phase + track (+ chosen filter + encode settings)
     result_json TEXT,
     message TEXT,
     log_path TEXT,

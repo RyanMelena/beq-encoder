@@ -1,4 +1,4 @@
-"""Phase 2 of a job: the approved filter on the chosen track, delivered into the file."""
+"""Phase 2 of a job: the chosen filter on the chosen track, delivered into the file."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ def run_encode(job: Job) -> dict:
     fmt = p.get("format", "truehd")
     entry = p.get("entry")
     if not entry or not entry.get("filters"):
-        raise JobFailed("No approved BEQ filter in this job")
+        raise JobFailed("No BEQ filter was chosen for this job")
 
     stamp, probe = job.read_source()
     track = probe.track(int(p["track_id"]))

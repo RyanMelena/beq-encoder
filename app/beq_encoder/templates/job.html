@@ -82,7 +82,7 @@
 
 {% if decide %}
 <form id="catalogue-search" method="get"></form>
-<form method="post" action="/jobs/{{ j.id }}/approve" id="approve">
+<form method="post" action="/jobs/{{ j.id }}/encode" id="choose">
 <input type="hidden" name="q" value="{{ q }}">
 <p class="trackline"><span class="muted">Source track</span> <b>{{ t.label }}</b> · {{ t.language }}{% if t.name %} · “{{ t.name }}”{% endif %}{% if prep.plan and prep.plan.ok %}<br><span class="muted">New track</span> {{ prep.plan.label }} (lossless){% endif %}{% if j.media_id %}<br><a href="/media/{{ j.media_id }}">Choose another track</a>{% endif %}</p>
 
@@ -105,7 +105,7 @@
         <input id="catalogue-q" type="search" name="q" value="{{ q }}" placeholder="Film title or TMDB id" form="catalogue-search">
         <button class="ghost" form="catalogue-search">Search</button>
       </div>
-      <p class="small muted">Adds matching catalogue filters to the list above. Nothing is applied until you approve one.</p>
+      <p class="small muted">Adds matching catalogue filters to the list above. Nothing is applied until you encode with one.</p>
     </div>
   </div>
 </div>
@@ -132,9 +132,9 @@
   <p class="go small muted">The original track is kept. The film file is only updated after the audio, file, sync and channel-order checks all pass.</p>
 </div>
 {% set selected = (choices|selectattr('selectable')|selectattr('entry.digest', 'eq', chosen.digest)|first) if chosen %}
-<div class="approve-bar">
+<div class="encode-bar">
   <p><span class="small muted">Selected filter</span> <b id="chosen-name">{{ selected.entry.label if selected else 'None yet' }}</b></p>
-  <button{{ ' disabled' if not choices|selectattr('selectable')|list }}>Approve &amp; queue</button>
+  <button{{ ' disabled' if not choices|selectattr('selectable')|list }}>Encode with this filter</button>
 </div>
 </form>
 {% endif %}
@@ -184,7 +184,7 @@
       <dt>Output</dt><dd>{% if p.format == 'flac' %}FLAC 24-bit (test){% elif prep and prep.track.kind == 'eac3_joc' %}TrueHD Atmos (Atmos objects decoded from DD+){% elif prep and prep.track.kind != 'truehd_atmos' %}TrueHD {{ prep.track.layout_label }} (channel-based){% else %}TrueHD Atmos (every Atmos object kept){% endif %}</dd>
       <dt>Gain</dt><dd>{% if p.fixed_gain_db is not none %}fixed {{ p.fixed_gain_db }} dB{% else %}auto, target peak {{ p.target_peak_dbfs }} dBFS{% endif %}</dd>
       <dt>Options</dt><dd>{{ 'default track · ' if p.default_flag }}{{ 'replace existing BEQ' if p.replace_existing_beq else 'keep existing BEQ' }}</dd>
-      <dt>Approved</dt><dd>{{ p.approved_at|t }}</dd>
+      <dt>Chosen</dt><dd>{{ (p.chosen_at or p.approved_at)|t }}</dd>
     </dl>
   </div>
   {% if svg %}{{ curve() }}{% endif %}
@@ -278,14 +278,14 @@ async function showCurve(href, reveal) {
   curve.replaceWith(next);
   if (reveal) next.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
-const approve = document.getElementById('approve');
-if (approve) {
-  approve.addEventListener('change', (e) => {
+const choose = document.getElementById('choose');
+if (choose) {
+  choose.addEventListener('change', (e) => {
     if (e.target.name !== 'digest') return;
     document.getElementById('chosen-name').textContent = e.target.dataset.name;
     showCurve(e.target.closest('tr').querySelector('.curve-link').href, false);
   });
-  approve.addEventListener('click', (e) => {
+  choose.addEventListener('click', (e) => {
     const a = e.target.closest('.curve-link');
     if (a) { e.preventDefault(); showCurve(a.href, true); }
   });

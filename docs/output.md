@@ -12,7 +12,7 @@ The BEQ track follows its source track and is not the default track unless `BEQ_
 - `BEQ TrueHD 7.1 (beqforge 0.3.3 flatten)`
 
 A new BEQ track replaces the BEQ track that the film already has.
-To keep both, clear **Replace an existing BEQ track** when you approve.
+To keep both, clear **Replace an existing BEQ track** when you choose the filter.
 
 ## Tags
 

@@ -1,4 +1,5 @@
-"""FastAPI app: library, run (prepare) -> review candidates -> approve -> encode, job queue."""
+"""FastAPI app: library, run (prepare) -> review the filters -> choose one (or none) -> encode,
+job queue."""
 
 from __future__ import annotations
 
@@ -208,7 +209,7 @@ tpl.env.filters.update(t=_fmt_time, dbs=_fmt_db, clock=_fmt_clock, plain=_plain,
 tpl.env.globals.update(dur=_fmt_dur, film=film_name, dash=DASH)
 
 
-JOB_FOR_FILE = "A job for this file is already queued, running or awaiting approval"
+JOB_FOR_FILE = "A job for this file is already queued, running or ready for review"
 FILE_CHANGED = "The file is no longer the one this job was prepared from; run it again"
 TARGET_PEAK_RANGE = (-60.0, 0.0)  # dBFS
 FIXED_GAIN_RANGE = (-60.0, 12.0)  # dB
@@ -237,7 +238,7 @@ def _under_roots(p: Path) -> bool:
 JOB_STATUS = {
     "queued": ("Queued", "\u22ef"),
     "running": ("Running", "\u21bb"),
-    "awaiting": ("Awaiting approval", "!"),
+    "awaiting": ("Ready for review", "!"),
     "done": ("Done", "\u2713"),
     "failed": ("Failed", "\u2715"),
     "no_beq": ("No BEQ needed", "\u25cb"),
@@ -427,8 +428,9 @@ STAGE_WORDS = (
     (re.compile(r"^Decoding DD\+ Atmos objects \(Cavern\)$"), "Decoding the DD+ Atmos objects"),
     (re.compile(r"^Reading the (.+) bitstream$"), r"Reading the \1 track"),
     (re.compile(r"^No BEQ$"), JOB_STATUS["no_beq"][0]),
-    (re.compile(r"^Discarded$"), JOB_STATUS["cancelled"][0]),
+    (re.compile(r"^Discarded$"), "Left without BEQ"),  # Don't add BEQ on a job ready for review
     (re.compile(r"^Superseded$"), "Replaced by a new design"),
+    (re.compile(r"^Awaiting approval$"), JOB_STATUS["awaiting"][0]),  # jobs stored before the rename
 )
 
 
@@ -441,14 +443,16 @@ def _stage_words(stage: str) -> str:
 
 def _message_words(job: dict) -> str:
     text = (job["message"] or "").removeprefix(f"{job['status_label']}: ")
-    if text.startswith("Approved: "):
-        entry = job["params"].get("entry") or {}
-        return ("Designed filter approved" if entry.get("origin") == "designer"
-                else f"Filter by {text.removeprefix('Approved: ')} approved")
+    for prefix in ("Chosen: ", "Approved: "):  # "Approved: " on jobs stored before the rename
+        if text.startswith(prefix):
+            entry = job["params"].get("entry") or {}
+            return ("Designed filter chosen" if entry.get("origin") == "designer"
+                    else f"Filter by {text.removeprefix(prefix)} chosen")
     return _plain(text)
 
 
 # What a job with nothing stored to say tells the person.
+DECLINED = "You chose not to add BEQ. The film was left as it is."
 QUIET_DETAIL = {"queued": "Waiting in the queue.",
                 "cancelled": "Stopped before it finished. The film file was not changed."}
 
@@ -477,7 +481,8 @@ def _job_dict(r) -> dict:
     d["stage_note"] = "" if d["stage_label"] == d["status_label"] else d["stage_label"]
     # A discarded job's stored message still asks the person to choose a filter.
     stale = d["stage"] in ("Discarded", "Superseded")
-    d["detail"] = ("" if stale else _message_words(d)) or QUIET_DETAIL.get(d["status"], "")
+    d["detail"] = ("" if stale else _message_words(d)) or (
+        DECLINED if d["stage"] == "Discarded" else QUIET_DETAIL.get(d["status"], ""))
     plain = _failure_words(d["detail"]) if d["status"] == "failed" else None
     if plain:  # the stored wording stays available behind the plain sentence
         d["raw_detail"], d["detail"] = d["detail"], plain[0]
@@ -538,15 +543,17 @@ def _job_next(j: dict) -> dict:
         "review": prep.get("track") and {"post": "review", "label": f"Choose a filter anyway{count}"},
         "design": prep and not prep.get("design") and {"post": "design", "label": "Design a filter"},
         "retry": {"post": "retry", "label": "Run again"},
-        "cancel": {"post": "cancel", "label": "Cancel job", "danger": True},
+        "cancel": ({"post": "cancel", "label": "Don't add BEQ"} if status == "awaiting"
+                   else {"post": "cancel", "label": "Cancel job", "danger": True}),
     }
     if status == "queued":
         advice = "You can leave this page; it starts on its own."
     elif status == "running":
         advice = "You can leave this page; the job carries on."
     elif status == "awaiting":
-        advice = ("Next: choose a filter below, check its curve, then press Approve & queue. "
-                  "Nothing in the file changes until you approve.")
+        advice = ("If this film should have BEQ, choose a filter below, check its curve, then "
+                  "press Encode with this filter. If it is better as it is, press Don't add BEQ. "
+                  "Nothing in the file changes until you encode.")
     elif status == "unsupported":
         usable = _other_usable_tracks(j)
         names = ", ".join(f"{a.label} ({a.language})" for a in usable or [])
@@ -566,6 +573,8 @@ def _job_next(j: dict) -> dict:
         changed = "" if "not changed" in j["detail"] else "The film file was not changed. "
         advice = (f"{changed}Run the job again: some problems do not repeat. If it fails the "
                   "same way, open the film and choose a different filter.")
+    elif status == "cancelled" and j["stage"] == "Discarded":
+        advice = "If you change your mind, run the job again and choose a filter."
     elif status == "cancelled":
         advice = "Run the job again whenever you are ready."
     else:
@@ -641,7 +650,7 @@ CHOICE_TAGS = {"catalogue": "Catalogue", "designer": "Automatic design", "relate
 
 
 def _choices(job: dict, q: str = "") -> list[dict]:
-    """Everything the person may approve: same-track catalogue entries first, then designer
+    """Everything the person may choose: same-track catalogue entries first, then designer
     candidates, then other catalogue entries for the film, then search results."""
     prep = job["prepare"] or {}
     tr = prep.get("track") or {}
@@ -719,7 +728,7 @@ class PathRejected(HTTPException):
 
 PATH_FORMS = {"/media/add": ("Could not add that file", "Add file"),
               "/scan": ("Could not scan that folder", "Scan folder")}
-ACTION_HEADINGS = {"/run": "Could not start this job", "/approve": "Could not approve this filter",
+ACTION_HEADINGS = {"/run": "Could not start this job", "/encode": "Could not encode with this filter",
                    "/design": "Could not design a filter", "/review": "Could not reopen this job",
                    "/retry": "Could not retry this job"}
 MISSING = {
@@ -844,7 +853,7 @@ LIBRARY_VIEWS = {
     "candidates": ("BEQ candidates", "has_audio=1 AND has_beq=0 AND candidate IS NOT NULL"),
     "todo": ("Without BEQ", "has_audio=1 AND has_beq=0"),
     "stale": ("Stale BEQ", "has_audio=1 AND has_beq=1 AND stale=1"),
-    "review": ("Awaiting approval", f"has_audio=1 AND {_LAST_JOB} = 'awaiting'"),
+    "review": ("Ready for review", f"has_audio=1 AND {_LAST_JOB} = 'awaiting'"),
     "beq": ("Has BEQ", "has_audio=1 AND has_beq=1"),
     "all": ("All films", "has_audio=1 OR error IS NOT NULL"),
     "errors": ("Errors", "error IS NOT NULL"),
@@ -1173,8 +1182,8 @@ def job_page(request: Request, job_id: int, pick: str = "", q: str = ""):
     )
 
 
-@app.post("/jobs/{job_id}/approve")
-def job_approve(
+@app.post("/jobs/{job_id}/encode")
+def job_encode(
     job_id: int,
     digest: str = Form(...),
     q: str = Form(""),
@@ -1190,7 +1199,8 @@ def job_approve(
         raise HTTPException(404)
     j = _job_dict(r)
     if j["status"] != "awaiting":
-        raise HTTPException(409, f"Job is {j['status_label']}, not awaiting approval")
+        raise HTTPException(409, f"Job is {j['status_label']}; a filter can only be chosen "
+                                f"while it is {JOB_STATUS['awaiting'][0].lower()}")
     choice = next((c for c in _choices(j, q) if c["entry"]["digest"] == digest), None)
     if choice is None:
         raise HTTPException(400, "Unknown filter choice; reload the page")
@@ -1218,12 +1228,12 @@ def job_approve(
         "fixed_gain_db": fixed,
         "default_flag": default_flag,
         "replace_existing_beq": replace_existing_beq,
-        "approved_at": time.time(),
+        "chosen_at": time.time(),
     }
     if not db.transition(job_id, "awaiting", params_json=json.dumps(params), phase="encode",
                          status="queued", stage="Queued", percent=None, started_at=None,
-                         finished_at=None, message=f"Approved: {choice['entry'].get('label')}"):
-        raise HTTPException(409, "Job is no longer awaiting approval")
+                         finished_at=None, message=f"Chosen: {choice['entry'].get('label')}"):
+        raise HTTPException(409, "Job is no longer ready for review")
     jobs.kick()
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
@@ -1239,7 +1249,7 @@ def job_design(job_id: int):
         raise HTTPException(409, "Job is still running")
     if j["status"] == "awaiting" and not db.transition(
             job_id, "awaiting", status="cancelled", stage="Superseded", finished_at=time.time()):
-        raise HTTPException(409, "Job is no longer awaiting approval")
+        raise HTTPException(409, "Job is no longer ready for review")
     track_id = (j["prepare"] or {}).get("track", {}).get("track_id", j["params"].get("track_id"))
     new_id = _enqueue(j["media_id"], j["path"], {"phase": "prepare", "track_id": track_id,
                                                  "force_designer": True})
@@ -1256,7 +1266,7 @@ def job_review(job_id: int):
     j = _job_dict(r)
     if j["status"] != "no_beq" or not (j["prepare"] or {}).get("track"):
         raise HTTPException(409, f"Job is {j['status_label']}; only a “{JOB_STATUS['no_beq'][0]}” result can be reviewed")
-    if not db.transition(job_id, "no_beq", status="awaiting", stage="Awaiting approval",
+    if not db.transition(job_id, "no_beq", status="awaiting", stage=JOB_STATUS["awaiting"][0],
                          finished_at=None,
                          message="No BEQ was recommended; choose a catalogue entry to use anyway"):
         raise HTTPException(409, JOB_FOR_FILE)

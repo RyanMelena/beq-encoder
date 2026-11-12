@@ -6,7 +6,7 @@ The encode itself has its own page: [TrueHD encoding through dee_shim](truehd-en
 ## A job has three stages
 
 1. **Prepare.** The encoder probes the file with `mkvmerge -J`, `ffprobe`, and MediaInfo. It picks the best track, applies the support rules, and looks for a filter.
-2. **Approve.** The job waits until you pick a filter and click **Approve & queue**.
+2. **Review.** The job waits for you. Pick a filter and click **Encode with this filter**, or click **Don't add BEQ** to leave the film as it is.
 3. **Encode.** The encoder filters the track, encodes it, checks it, and remuxes the file.
 
 If any step fails, the source file stays untouched.
@@ -15,13 +15,13 @@ If any step fails, the source file stays untouched.
 
 The encoder asks the BEQCatalogue first. An entry counts only when it matches both the film and the type of the track.
 
-- If the entry has filters, the job waits for your approval.
+- If the entry has filters, the job waits for you to review them.
 - If the entry says "no filters", the run ends as **No BEQ**.
 - If the catalogue has no entry, the encoder asks the beqforge designer.
 
 The designer can also decline, and the run then ends as **No BEQ**.
 No BEQ is advice, and you can overrule it.
-**Choose a filter anyway** opens the approval page with the catalogue entries for the other tracks of the film and a catalogue search.
+**Choose a filter anyway** opens the review page with the catalogue entries for the other tracks of the film and a catalogue search.
 The encoder never preselects an entry for a different track or film.
 
 ## How the encoder picks the best track
