@@ -72,7 +72,7 @@ FRAME = 1536
 DEFAULT_POS = [-1.0, 1.0, 0.0]
 
 
-def move_objects(base, every: int, into_frame: int = 384) -> None:
+def move_objects(base, every: int, into_frame: int = 1112) -> None:
     """Give each object of a DAMF a new position every `every` samples, `into_frame`
     samples into a DEE frame (where a disc's updates sit)."""
     import yaml
@@ -104,11 +104,20 @@ def object_events(meta_path) -> dict[int, list[tuple[int, list]]]:
     return out
 
 
-def dee_positions(events: list[tuple[int, list]], audio: np.ndarray) -> list[tuple[int, list]]:
-    """The position events DEE 6.7 codes for one object under dee_shim --oamd-as-is
-    (measured): each update at the start of its 1536-sample frame, the last one inside
-    a frame winning; none while the object is digitally silent, which starts it at the
-    default position and sends its current one in the frame before its audio resumes."""
+# The version the fake truehdd prints, and with it how it reads update times (FAKE_TRUEHDD_VERSION)
+TRUEHDD_RELEASE = "truehdd 0.6.2 (truehd library 0.7.2)"   # leaves out the block offset
+TRUEHDD_EXACT = "truehdd 0.6.3 (truehd library 0.7.3)"     # reads it
+
+
+def dee_positions(events: list[tuple[int, list]], audio: np.ndarray,
+                  at_sample: bool = True) -> list[tuple[int, list]]:
+    """The position events DEE 6.7 codes for one object under dee_shim 0.2 --oamd-as-is
+    (measured), as truehdd decodes them: one update per 1536-sample frame holding the
+    state after the frame's last update, at that update's sample (`at_sample`: a truehdd
+    that reads the block offset) or at the start of the frame (truehdd 0.6.2, and DEE's
+    own timing before dee_shim 0.2); none while the object is digitally silent, which
+    starts it at the default position and sends its current one in the frame before its
+    audio resumes."""
     from bisect import bisect_right
     if not events:
         return []
@@ -121,28 +130,42 @@ def dee_positions(events: list[tuple[int, list]], audio: np.ndarray) -> list[tup
         if f == 0 and not soon:
             out.append((0, DEFAULT_POS))
             continue
-        now = events[max(0, bisect_right(times, f * FRAME + FRAME - 1) - 1)][1]
+        k = max(0, bisect_right(times, f * FRAME + FRAME - 1) - 1)
+        now = events[k][1]
         if soon and (not out or out[-1][1] != now):
-            out.append((f * FRAME, now))
+            t = times[k] if at_sample and times[k] >= f * FRAME else f * FRAME
+            out.append((t, now))
     return out
 
 
 def fake_dee_atmos(src_atmos: str, out_base: str, mode: str = "") -> None:
-    """What DEE 6.7 under dee_shim (--as-is --oamd-as-is) encodes from a DAMF, as the fake
-    truehdd decodes it back: every element as it is, the objects in reverse order, padded
-    to 16 elements with silence, each object's positions as DEE codes them
-    (dee_positions). Broken on request: `drop` leaves out an object with audio, `sample`
-    puts one sample 4 LSB off, `late` codes one position update a frame late, `wrong`
-    codes one position wrong."""
+    """What DEE 6.7 under dee_shim 0.2 (--as-is --oamd-as-is) encodes from a DAMF, as the
+    fake truehdd decodes it back: every element as it is, in master order, padded to 16
+    elements with silence, each object's positions as DEE codes them (dee_positions, read
+    as the fake truehdd's FAKE_TRUEHDD_VERSION reads them). Broken on request: `drop`
+    leaves out the last object and `drop-loud` the first (each has audio), `sample` puts one sample 4 LSB off, `late` codes one
+    position update a frame late, `wrong` codes one position wrong, `frame-start` codes
+    every update at the start of its frame (DEE's own timing), `reorder` codes the
+    objects in reverse order."""
+    import os
+
     import yaml
+
+    from beq_encoder import atmos
     base = src_atmos[: -len(".atmos")]
     x = read_caf(f"{base}.atmos.audio")
     pres = yaml.safe_load(open(f"{base}.atmos"))["presentations"][0]
     nb = sum(len(b["channels"]) for b in pres["bedInstances"])
     ids = [o["ID"] for o in pres["objects"]]
-    order = list(range(len(ids)))[::-1]
-    if mode == "drop":
+    order = list(range(len(ids)))
+    if mode == "reorder":
+        order = order[::-1]
+    if mode == "drop":  # the quietest after the BEQ, so the programme still lines up
+        order = order[:-1]
+    if mode == "drop-loud":  # the loudest: the sum of all elements no longer lines up
         order = order[1:]
+    at_sample = mode != "frame-start" and atmos.decoder_update_times(
+        os.environ.get("FAKE_TRUEHDD_VERSION", TRUEHDD_RELEASE)) == atmos.SAMPLE
     objs = x[:, nb:]
     y = np.concatenate([x[:, :nb], objs[:, order],
                         np.zeros((len(x), 16 - nb - len(order)))], axis=1)
@@ -154,7 +177,7 @@ def fake_dee_atmos(src_atmos: str, out_base: str, mode: str = "") -> None:
     doc["events"] = [e for e in doc["events"] if "pos" not in e]
     src = object_events(f"{base}.atmos.metadata")
     for k, j in enumerate(order):
-        evs = dee_positions(src.get(ids[j], []), objs[:, j])
+        evs = dee_positions(src.get(ids[j], []), objs[:, j], at_sample)
         if k == 0 and mode in ("late", "wrong"):
             i = next(i for i, (t, _) in enumerate(evs) if i and np.any(objs[t:t + FRAME, j]))
             t, p = evs[i]

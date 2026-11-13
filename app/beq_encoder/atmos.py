@@ -20,12 +20,18 @@ is checked like every other route, sample by sample, and fails loudly otherwise:
   TOLERANCE_LSB of sosfilt(source) x gain: the rounding of the master DEE is given,
   which is not dithered and which DEE codes as it is; every other encoded element
   digitally silent
-* the object metadata, frame by frame: DEE codes each position update at the start
-  of its 1536-sample frame (frames counted from the programme's first sample; the
-  last update inside a frame wins), and sends none while an object is digitally
-  silent. So in every frame in which an encoded object has audio, its position
-  mid-frame must equal the source position in effect at the frame's last sample
-  (a track's first event is its initial state), within POSITION_TOLERANCE.
+* the object metadata, frame by frame: DEE codes one metadata update per 1536-sample
+  frame (frames counted from the programme's first sample), holding the state after the
+  frame's last update, and sends none while an object is digitally silent. dee_shim
+  (0.2, `--oamd-update-times`, on under `--oamd-as-is`) codes it at the sample of one of
+  the frame's updates, where DEE put it at the frame's start. So in every frame in which
+  an encoded object has audio, its position at the frame's last sample must equal the
+  source position in effect there (a track's first event is its initial state), within
+  POSITION_TOLERANCE; and each move of an encoded object in such a frame must start at a
+  sample where the source updates. The decoder decides how much of that can be seen
+  (`decoder_update_times`): truehdd 0.6.2 leaves out the OAMD block offset, so it reads
+  each update of the encode only to within an access unit of its frame's start. With it
+  the position is compared mid-frame instead, and the update times are not judged.
 
 Both are judged in one pass over the programme where the encode allows it (`_Guess`):
 the element carrying each source element is settled over the whole programme, so it is
@@ -33,11 +39,13 @@ guessed as each element starts and the samples compared under the guess; if the 
 does not hold, the samples are compared again in a second pass.
 
 Reported: each element's largest error in LSB, the object-frames whose position was
-checked, and the largest lead DEE gave an update by moving it to its frame's start.
+checked, how the update times were read, and (read to the sample) the largest distance
+between an object's move and its own update in the source.
 """
 
 from __future__ import annotations
 
+import re
 import shutil
 import struct
 from contextlib import contextmanager
@@ -58,8 +66,7 @@ except AttributeError:  # pragma: no cover
 
 LSB24 = 1.0 / 2**23
 # The master is the filtered source rounded to 24 bits, without dither: DEE 6.7 under
-# dee_shim (with the quiet-weight patch, see the Dockerfile) codes every sample of it as
-# it is, so the only error left is that rounding
+# dee_shim codes every sample of it as it is, so the only error left is that rounding
 TOLERANCE_LSB = 0.5 + 1e-6
 FS = 48000
 MAX_ELEMENTS = 16
@@ -70,6 +77,23 @@ ACTIVE_PEAK = 0.5 * LSB24
 FRAME = 1536                # DEE codes object positions once per frame of this many samples
 POSITION_TOLERANCE = 1 / 62  # room units: half a position step of the coded metadata
 METHOD = "sample-exact"
+# How exactly the decoder of the encode reports when a position update starts
+SAMPLE, FRAME_ONLY = "sample", "frame"
+# truehdd reads the OAMD block offset from 215b3ba on, the 14th commit after 0.6.2
+_TRUEHDD_RE = re.compile(r"\b(\d+)\.(\d+)\.(\d+)(?:-(\d+)-g[0-9a-f]+)?")
+
+
+def decoder_update_times(version: str) -> str:
+    """SAMPLE if the truehdd that printed `version` (`truehdd --version`) places each
+    position update at its sample, FRAME_ONLY if it leaves out the block offset (0.6.2 and
+    earlier), which puts an update of a dee_shim encode near its frame's start."""
+    m = _TRUEHDD_RE.search(version)
+    if not m:
+        return FRAME_ONLY
+    release = tuple(int(g) for g in m.groups()[:3])
+    past = int(m.group(4) or 0)
+    return SAMPLE if release > (0, 6, 2) or (release == (0, 6, 2) and past >= 14) \
+        else FRAME_ONLY
 
 
 @dataclass(slots=True)
@@ -161,7 +185,8 @@ class AtmosCheck:
     max_err_lsb: float = 0.0
     element_err_lsb: dict[str, float] = field(default_factory=dict)
     object_frames: int = 0             # (object, frame) pairs whose position was checked
-    max_update_lead: int = 0           # samples DEE moved an update earlier, at most
+    update_times: str = FRAME_ONLY     # how exactly the decoder reports update times
+    max_update_shift: int = 0          # SAMPLE: an object's move from its own update, at most
     problem: str = ""
     min_corr_limit: float = MIN_OBJECT_CORR
     decoder: dict = field(default_factory=dict)                    # e.g. Cavern's alignment
@@ -175,7 +200,8 @@ class AtmosCheck:
                 "min_object_corr": round(self.min_object_corr, 5),
                 "max_err_lsb": round(self.max_err_lsb, 3),
                 "element_err_lsb": {k: round(v, 3) for k, v in self.element_err_lsb.items()},
-                "object_frames": self.object_frames, "max_update_lead": self.max_update_lead,
+                "object_frames": self.object_frames, "update_times": self.update_times,
+                "max_update_shift": self.max_update_shift,
                 "problem": self.problem, "decoder": self.decoder,
                 "limits": {"min_object_corr": self.min_corr_limit,
                            "max_err_lsb": round(TOLERANCE_LSB, 3),
@@ -580,47 +606,67 @@ def _compare(streams: _Streams, energies: Energies, offset: int, emap: ElementMa
 class _Gate:
     """The object metadata against the source's, frame by frame."""
     checked: int = 0
-    max_lead: int = 0
+    max_shift: int = 0
     problem: str = ""
 
 
+def _moves(e: Positions, offset: int, frames: np.ndarray) -> np.ndarray:
+    """The samples (on the source's timeline) at which the encoded object `e` moves,
+    in the frames listed in `frames`."""
+    t = e.times - offset
+    moved = np.zeros(len(t), dtype=bool)
+    moved[1:] = np.abs(np.diff(e.pos, axis=0)).max(axis=1) > POSITION_TOLERANCE
+    return t[moved & np.isin(t // FRAME, frames)]
+
+
 def _positions(source: _Damf, encoded: _Damf, mapping: dict[int, int], offset: int,
-               samples: _Samples) -> _Gate:
-    """In every frame in which an encoded object has audio, its position mid-frame must
-    be the source's in effect at the frame's last sample (module docstring)."""
+               samples: _Samples, update_times: str) -> _Gate:
+    """In every frame in which an encoded object has audio, its position must be the
+    source's in effect at the frame's last sample, and read to the sample each of its
+    moves there must start where the source updates (module docstring)."""
     la, lb = source.layout, encoded.layout
     src = position_events(source.metadata, la.ids)
     enc = position_events(encoded.metadata, lb.ids)
-    checked = max_lead = 0
+    exact = update_times == SAMPLE
+    # dee_shim codes a frame's update at the sample of one of the frame's updates, of any element
+    updates = np.unique(np.concatenate([p.times for p in src.values()])) if src \
+        else np.zeros(0, dtype=np.int64)
+    checked = max_shift = 0
     for j, c in enumerate(int(c) for c in samples.idx):
         frames = np.flatnonzero(samples.audible[:, j])
         if c < len(la.bed) or not len(frames) or la.ids[c] not in src:
             continue  # a bed channel, a silent object, or one the source never positions
         s, e = src[la.ids[c]], enc.get(lb.ids[mapping[c]])
         if e is None:
-            return _Gate(checked, max_lead,
+            return _Gate(checked, max_shift,
                          f"{la.name(c)} has audio but the encode never positions it")
         starts = frames * FRAME
-        want = s.at(starts + FRAME - 1)
-        got = e.at(starts + FRAME // 2 + offset)
+        ends = starts + FRAME - 1
+        want = s.at(ends)
+        got = e.at((ends if exact else starts + FRAME // 2) + offset)
         off = np.abs(want - got).max(axis=1) > POSITION_TOLERANCE
         checked += len(frames)
         if off.any():
             f = int(np.flatnonzero(off)[0])
-            return _Gate(checked, max_lead, (
+            return _Gate(checked, max_shift, (
                 f"{la.name(c)} is placed at {_rounded(got[f])} at {starts[f] / FS:.3f} s, "
                 f"where the source has it at {_rounded(want[f])}: the position metadata "
                 "does not match"))
-        # each encoded update against the source's last update inside its frame
-        t = e.times - offset
-        last = np.searchsorted(s.times, t + FRAME, side="left") - 1
-        found = last >= 0
-        last = np.maximum(last, 0)
-        same = found & (s.times[last] >= t) & (
-            np.abs(s.pos[last] - e.pos).max(axis=1) <= POSITION_TOLERANCE)
-        if same.any():
-            max_lead = max(max_lead, int((s.times[last] - t)[same].max()))
-    return _Gate(checked, max_lead)
+        if not exact:
+            continue
+        moves = _moves(e, offset, frames)
+        k = np.minimum(np.searchsorted(updates, moves), max(len(updates) - 1, 0))
+        stray = updates[k] != moves if len(updates) else np.ones(len(moves), dtype=bool)
+        if stray.any():
+            t = int(moves[np.flatnonzero(stray)[0]])
+            return _Gate(checked, max_shift, (
+                f"{la.name(c)} moves at sample {t} ({t / FS:.3f} s), where the source "
+                "updates nothing: the position update times do not match"))
+        # the object's own last update in the frame of each move (the frame's state is its)
+        own = s.times[np.maximum(np.searchsorted(s.times, (moves // FRAME + 1) * FRAME) - 1, 0)]
+        if len(moves):
+            max_shift = max(max_shift, int(np.abs(own - moves).max()))
+    return _Gate(checked, max_shift)
 
 
 def _rounded(p: np.ndarray) -> list[float]:
@@ -629,16 +675,19 @@ def _rounded(p: np.ndarray) -> list[float]:
 
 def verify(src_base: Path | str, out_base: Path | str, sos: np.ndarray, gain: float,
            max_offset: int = 4800, block: int = 1 << 17, tick=None,
-           min_object_corr: float = MIN_OBJECT_CORR, method: str = METHOD) -> AtmosCheck:
+           min_object_corr: float = MIN_OBJECT_CORR, method: str = METHOD,
+           update_times: str = FRAME_ONLY) -> AtmosCheck:
     """Check a TrueHD Atmos encode (decoded back to `out_base`) against the source's
     decode kept from before the filter (`src_base`, BEQ-filtered here with `sos` and
-    `gain`): see the module docstring. A failure's `problem` says at which step it
-    stopped; the fields measured up to there are filled in."""
+    `gain`): see the module docstring. `update_times` says how exactly the decoder of
+    the encode reports position update times (`decoder_update_times`). A failure's
+    `problem` says at which step it stopped; the fields measured up to there are
+    filled in."""
     source, encoded = _Damf.at(src_base, "source DAMF"), _Damf.at(out_base, "encoded DAMF")
     res = AtmosCheck(ok=False, elements=source.layout.channels,
                      out_elements=encoded.layout.channels,
                      bed=", ".join(n for n, _ in source.layout.bed), method=method,
-                     min_corr_limit=min_object_corr)
+                     min_corr_limit=min_object_corr, update_times=update_times)
     res.problem = _layout_problem(source.layout, encoded.layout)
     if res.problem:
         return res
@@ -665,8 +714,8 @@ def verify(src_base: Path | str, out_base: Path | str, sos: np.ndarray, gain: fl
     res.problem = samples.problem
     if res.problem:
         return res
-    gate = _positions(source, encoded, emap.mapping, res.offset_frames, samples)
-    res.object_frames, res.max_update_lead = gate.checked, gate.max_lead
+    gate = _positions(source, encoded, emap.mapping, res.offset_frames, samples, update_times)
+    res.object_frames, res.max_update_shift = gate.checked, gate.max_shift
     res.problem = gate.problem
     res.ok = not res.problem
     return res

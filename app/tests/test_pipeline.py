@@ -35,7 +35,7 @@ from beq_encoder.pipeline.processes import Processes
 from beq_encoder.pipeline.route_pcm import block_writer
 from beq_encoder.worker import JobQueue, Scanner
 
-from .helpers import make_signal, read_caf, write_caf
+from .helpers import TRUEHDD_EXACT, TRUEHDD_RELEASE, make_signal, read_caf, write_caf
 
 HERE = Path(__file__).parent
 pytestmark = pytest.mark.skipif(
@@ -171,8 +171,11 @@ def make_dee(folder: Path) -> tuple[Path, Path]:
 FAKE_TRUEHDD = """#!{py}
 import os, shutil, subprocess, sys
 sys.path.insert(0, {here!r})
-from helpers import write_damf, make_signal, move_objects
+from helpers import TRUEHDD_RELEASE, write_damf, make_signal, move_objects
 a = sys.argv[1:]
+if a == ['--version']:  # with it, how the fake DEE's output reads (helpers.fake_dee_atmos)
+    print(os.environ.get('FAKE_TRUEHDD_VERSION', TRUEHDD_RELEASE))
+    sys.exit(0)
 if 'info' in a:
     print('Presentation 3')
     print('    Dialogue Level          -27 dBFS')
@@ -189,7 +192,7 @@ else:  # a source track: as many samples as the stream holds, less any it is tol
     frames = sum(int(n) for n in walk.stdout.replace(',', ' ').split())
     write_damf(out, make_signal(frames=frames - int(os.environ.get('FAKE_TRUEHDD_LOSES', '0')),
                                 ch=12))
-    move_objects(out, 3 * 1536)  # a disc's updates sit 384 samples into a frame
+    move_objects(out, 3 * 1536)  # 1112 samples into a frame, where a disc's updates sit
 """
 
 
@@ -237,6 +240,7 @@ def env(tmp_path, assets, monkeypatch):
     monkeypatch.delenv("FAKE_DEE_PAN", raising=False)
     monkeypatch.delenv("FAKE_DEE_ATMOS", raising=False)
     monkeypatch.delenv("FAKE_TRUEHDD_LOSES", raising=False)
+    monkeypatch.delenv("FAKE_TRUEHDD_VERSION", raising=False)
     s = config.load()
     movie = tmp_path / "media" / "Test Movie (2020) {tmdb-333371}"
     movie.mkdir(parents=True)
@@ -275,8 +279,11 @@ def _pairs(args):
     return set(zip(args, args[1:]))
 
 
-def test_truehd_atmos_end_to_end(env):
+@pytest.mark.parametrize("decoder,times", [(TRUEHDD_RELEASE, "frame"),
+                                           (TRUEHDD_EXACT, "sample")])
+def test_truehd_atmos_end_to_end(env, monkeypatch, decoder, times):
     s, path, tmp = env
+    monkeypatch.setenv("FAKE_TRUEHDD_VERSION", decoder)
     before = media.probe(str(path))
     programme = pcmio.find_gaps("ffprobe", str(path), 48000).frames
     assert [a.atmos for a in before.audio] == [True, False]
@@ -308,11 +315,12 @@ def test_truehd_atmos_end_to_end(env):
     assert fid["objects"] == 11 and fid["out_elements"] == 16 and fid["bed"] == "LFE"
     assert fid["frames"] == programme and fid["max_err_lsb"] <= 0.5
     assert fid["limits"]["max_err_lsb"] == 0.5
-    assert fid["mapping"]["1"] == 11 and fid["mapping"]["11"] == 1  # objects reordered
-    # every object plays throughout: each one's position checked in every
-    # frame, every update coded at the start of its frame
+    assert fid["mapping"] == {str(c): c for c in range(12)}  # in master order
+    # every object plays throughout: each one's position checked in every frame, and
+    # read to the sample, every move at its own update
     assert fid["object_frames"] == 11 * -(-programme // 1536)
-    assert fid["max_update_lead"] == 384
+    assert fid["update_times"] == times and fid["max_update_shift"] == 0
+    assert f"position update times read to the {times}" in (tmp / "job.log").read_text()
     tags = subprocess.run(["mkvextract", str(path), "tags", "-"], capture_output=True,
                           text=True).stdout
     assert "BEQ_CHECK" in tags and "sample-exact:" in tags
@@ -341,6 +349,7 @@ def test_swapped_channels_fail_the_job(env, monkeypatch):
 
 @pytest.mark.parametrize("mode,says", [
     ("drop", "not carried by any one element"),
+    ("drop-loud", "does not line up with the filtered source"),
     ("sample", "differs from the filtered source by"),
     ("late", "the position metadata does not match"),
     ("wrong", "the position metadata does not match"),
@@ -352,6 +361,23 @@ def test_an_atmos_encode_that_is_not_the_filtered_source_fails(env, monkeypatch,
     with pytest.raises(JobFailed, match=says):
         _run(s, path, _params(media.probe(str(path))), tmp)
     assert path.read_bytes()[:4096] == digest
+
+
+def test_updates_at_the_frame_start_fail_where_the_decoder_reads_the_sample(env, monkeypatch):
+    """DEE's own timing (dee-shim#3): every update moved to the start of its frame."""
+    s, path, tmp = env
+    monkeypatch.setenv("FAKE_DEE_ATMOS", "frame-start")
+    monkeypatch.setenv("FAKE_TRUEHDD_VERSION", TRUEHDD_EXACT)
+    with pytest.raises(JobFailed, match="the position update times do not match"):
+        _run(s, path, _params(media.probe(str(path))), tmp)
+
+
+def test_objects_in_another_order_pass(env, monkeypatch):
+    s, path, tmp = env
+    monkeypatch.setenv("FAKE_DEE_ATMOS", "reorder")
+    result, _ = _run(s, path, _params(media.probe(str(path))), tmp)
+    fid = result["filter_report"]["fidelity"]
+    assert fid["ok"] and fid["mapping"]["1"] == 11 and fid["mapping"]["11"] == 1
 
 
 def test_keep_work_keeps_the_atmos_masters(env, tmp_path):

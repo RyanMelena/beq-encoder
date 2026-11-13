@@ -34,9 +34,9 @@ truehdd [$current → $latest](https://github.com/$repo/releases/tag/$latest) ([
 CI builds the image with it, but the tests run a fake truehdd, so nothing has exercised the new build yet. Before merging:
 
 - [ ] Encode a TrueHD Atmos excerpt and a channel-based one and read the checks in the job log ($recheck).
-- [ ] If this release has the \`samplePos\` fix (truehdd 215b3ba), confirm the position check still passes (docs/truehd-encoding.md: "The extra checks for TrueHD Atmos").
-- [ ] Bump \`ENCODER_REVISION\` in \`app/beq_encoder/assess.py\` if the encoder's output changes.
-- [ ] If the \`samplePos\` fix is in, update "Known limits" in the README.
+- [ ] This release has the OAMD block offset fix (truehdd 215b3ba), so the check now compares Atmos update times to the sample: confirm the job log says "position update times read to the sample" and the check passes (docs/truehd-encoding.md: "The extra checks for TrueHD Atmos").
+- [ ] Bump \`ENCODER_REVISION\` in \`app/beq_encoder/assess.py\`: some of the master's update times move 32 samples later.
+- [ ] Update "Known limits" in the README and "How DEE codes object positions" in docs/truehd-encoding.md, which describe truehdd 0.6.2.
 EOF
     ;;
 
@@ -59,30 +59,12 @@ EOF
     set_arg DEE_SHIM_COMMIT "$commit"
     set_arg DEE_SHIM_RUST "$rust"
 
-    src=$(mktemp -d)
-    git clone -q "https://github.com/$repo.git" "$src"
-    git -C "$src" checkout -q "$commit"
-    patches=""
-    for p in docker/dee-shim/*.patch; do
-      if git -C "$src" apply --check "$PWD/$p" 2>/dev/null; then
-        state="applies cleanly. Check whether it is still needed (the upstream issue's \`quiet_onset_repro.py\`)."
-      elif git -C "$src" apply --check --reverse "$PWD/$p" 2>/dev/null; then
-        state="**is already in this release**: delete it."
-      else
-        state="**no longer applies**: the image build fails until it is updated or deleted."
-      fi
-      patches="$patches- \`$p\` $state"$'\n'
-    done
-
     cat >"$body" <<EOF
 dee_shim [$current → $latest](https://github.com/$repo/releases/tag/$latest) ([changes](https://github.com/$repo/compare/$current...$latest)), commit \`${commit:0:7}\`. $rust_note
 
-Patches:
-$patches
 CI builds the image with it, but the tests run a fake dee_shim, so nothing has exercised the new build yet. Before merging:
 
 - [ ] Run the start-up probe, then encode a TrueHD Atmos excerpt and a 5.1 WAV and read the checks in the job log ($recheck).
-- [ ] Check whether [dee-shim#3](https://github.com/$repo/issues/3) (position updates moved to the frame start) is fixed in this release.
 - [ ] Bump \`ENCODER_REVISION\` in \`app/beq_encoder/assess.py\` if the encoder's output changes.
 - [ ] Update docs/truehd-encoding.md and "Known limits" in the README where this release changes what they describe.
 EOF

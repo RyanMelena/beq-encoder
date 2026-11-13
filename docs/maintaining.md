@@ -37,8 +37,7 @@ The Dockerfile takes these build arguments:
 | `TRUEHDD_VERSION` | The truehdd release. |
 | `CAVERN_COMMIT` | The Cavern commit. An empty value builds the image without Cavern. |
 
-The build applies every patch in `docker/dee-shim/` to dee_shim.
-`dee_shim -V` then reports `<version>+g<commit>-dirty`, where "dirty" marks the patch.
+The build compiles the dee_shim release unmodified, and `dee_shim -V` reports `<version>+g<commit>`.
 
 ## Release a version
 
@@ -63,10 +62,9 @@ Dependabot opens pull requests for the GitHub Actions and the Python dependencie
 
 Dependabot cannot see the truehdd and dee_shim versions in the Dockerfile.
 `.github/workflows/tooling-updates.yml` checks both projects every Monday and opens a pull request for a newer release.
-The pull request does three things:
+The pull request does two things:
 
 - It changes the build arguments in the Dockerfile.
-- It reports whether each patch in `docker/dee-shim/` still applies.
 - It lists the checks that you must run by hand before you merge.
 
 The workflow needs one repository setting.
@@ -105,6 +103,6 @@ Do these steps before you merge a tooling pull request or change your DEE folder
 	- Every `element_err_lsb` is at most 0.5 for Atmos and at most 1.5 for a channel-based track.
 	- `offset_frames` is 0.
 	- The position check passes.
-4. For a new dee_shim, find out whether `docker/dee-shim/quiet-weight.patch` is still needed. [dee-shim issue 4](https://github.com/truehdd/dee-shim/issues/4) carries `quiet_onset_repro.py`, which runs 42 quiet-object cases and prints one PASS or FAIL line for each case.
+4. For a new dee_shim, run `quiet_onset_repro.py` from [dee-shim issue 4](https://github.com/truehdd/dee-shim/issues/4). It runs 42 quiet-object cases and prints one PASS or FAIL line for each case, and every case must pass.
 
 [TrueHD encoding through dee_shim](truehd-encoding.md) explains what the checks measure.

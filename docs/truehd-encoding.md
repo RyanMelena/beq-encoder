@@ -44,31 +44,35 @@ With `--as-is`, every channel and every element decodes bit-exact, with no offse
 The encoder therefore holds back no headroom for DEE, and `TARGET_PEAK_DBFS` applies on every route.
 
 **With `--oamd-as-is`,** each source element gets an encoded element of its own.
-The encoded element IDs are a permutation of the source IDs, and unused encoded elements are silent.
+dee_shim keeps the elements in the order of the master, and unused encoded elements are silent.
+The check accepts the elements in any order.
+
+**With `--as-is`,** the stream also ends at the last sample of the input.
+Without that, DEE pads the input with silence to a whole block of 512 samples.
 
 DEE 6.7 applies no surround attenuation by default and trims nothing.
 DEE writes `beq.mlp.log.html` and `beq.mlp.mll` next to its output, and the folder passed as `--temp-dir` must exist.
 
-## Why the image patches dee_shim
+## Quiet Atmos objects
 
-dee_shim v0.1.0 mishandles an Atmos object that is quieter than the silence threshold of DEE, about 1.5 LSB.
+An Atmos object can be quieter than the silence threshold of DEE, about 1.5 LSB.
 DEE admits an object to a cluster by a weight, and the preprocessor of DEE leaves that weight at zero for such a block.
-The object then has no cluster of its own, and DEE mixes it into the cluster of a neighbour.
-An onset from digital silence comes back 1 LSB off.
-
-The image builds dee_shim with `docker/dee-shim/quiet-weight.patch`.
-The patch gives a quiet object a weight below the threshold of DEE, and the object comes back exact.
-The fix is filed upstream as [dee-shim issue 4](https://github.com/truehdd/dee-shim/issues/4).
-Delete the patch when a dee_shim release includes the fix.
+Before dee_shim 0.2, such an object had no cluster of its own, and DEE mixed it into the cluster of a neighbour.
+An onset from digital silence came back 1 LSB off ([dee-shim issue 4](https://github.com/truehdd/dee-shim/issues/4)).
+dee_shim 0.2 gives the object a weight, and the object comes back exact.
 
 ## How DEE codes object positions
 
-DEE codes the positions themselves exactly, within float formatting. Two rules of DEE change when a position takes effect.
+DEE codes the positions themselves exactly, within float formatting. Three rules decide when a position takes effect.
 
-1. DEE codes every position update at the start of a 1536-sample frame, which is 32 ms at 48 kHz. DEE counts frames from the first sample of the programme. An update inside a frame moves to the start of that frame, so the update can play up to 32 ms early. If one frame holds two updates, only the last update survives.
-2. DEE sends no updates for an object while the object is digitally silent. DEE writes the default position (-1, 1, 0) at the start of the programme, and sends the current position in the frame before the audio of the object resumes. No audible sample changes.
+1. DEE codes one metadata update per 1536-sample frame, which is 32 ms at 48 kHz. DEE counts frames from the first sample of the programme. The update holds the state after the last update inside the frame, so if one frame holds two updates of an object, only the last one survives.
+2. dee_shim 0.2 codes that update at its sample in the master, with its ramp. If the frame holds updates at different samples, the update goes at the one that moves the most elements. On its own, DEE codes every update at the start of its frame, so an update can play up to 32 ms early ([dee-shim issue 3](https://github.com/truehdd/dee-shim/issues/3)).
+3. DEE sends no updates for an object while the object is digitally silent. DEE writes the default position (-1, 1, 0) at the start of the programme, and sends the current position in the frame before the audio of the object resumes. No audible sample changes.
 
-The early updates are filed upstream as [dee-shim issue 3](https://github.com/truehdd/dee-shim/issues/3).
+The release of truehdd that the image ships, 0.6.2, leaves out the OAMD block offset when it decodes.
+It reads each update of the encode only to within an access unit (40 samples) of the start of its frame.
+It reads some updates of a disc 32 samples (0.7 ms) early, so the master that DEE receives carries that error. On the first 6 minutes of Edge of Tomorrow, 397 of 1,788 updates are early.
+truehdd commit 215b3ba fixes both. No release includes it yet.
 
 ## The check that every encode must pass
 
@@ -87,13 +91,23 @@ The job fails unless all of these conditions hold:
 
 - The bed is the same. The encode has at most 16 elements, has the full length, and aligns with the source. Any frames that DEE adds before or after the programme are digital silence.
 - One encoded element carries each source element that has audio. The correlation over the whole programme is at least 0.99, or at least 0.98 for a Cavern decode. Every sample of the element is within 0.5 LSB. Every other encoded element is digitally silent.
-- In every 1536-sample frame where an encoded object has audio, the position of the object matches the source. The check compares the position at mid-frame with the source position in effect at the last sample of the frame. The tolerance is 1/62 room units, half a step of the coded position.
+- In every 1536-sample frame where an encoded object has audio, the position of the object matches the source position in effect at the last sample of the frame. The tolerance is 1/62 room units, half a step of the coded position.
+- Each move of an encoded object in such a frame starts at a sample where the source updates an element.
+
+How much of the timing the check can see depends on the truehdd that decodes the encode. The job log names it.
+
+| truehdd | Where the check reads the encoded position | Update times |
+|---|---|---|
+| 0.6.2, in the image | Mid-frame | Not compared: truehdd reads them only to the frame |
+| A release after 0.6.2, or a build at least 14 commits past it | At the last sample of the frame | Compared to the sample |
 
 The position check fails on one wrong position and on any update that arrives one frame late.
+Read to the sample, it also fails on an update at the start of its frame, which is the timing of DEE on its own.
 An event without a `samplePos` happens at the time of the previous event, as Dolby and Cavern write it.
 
-The job page, the JSON report, and the `BEQ_CHECK` tag record three results:
+The job page and the JSON report record these results. The `BEQ_CHECK` tag records the first three.
 
 - The largest error of each element, in LSB.
 - The number of object-frames whose position the check compared.
-- The largest lead that DEE gave an update.
+- `update_times`: `sample` or `frame`, depending on how the decoder reads update times.
+- `max_update_shift`, only when read to the sample: the largest distance between a move of an object and its own update in the source. The shift is not zero only when one frame holds updates at different samples.

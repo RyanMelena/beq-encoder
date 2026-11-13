@@ -237,6 +237,8 @@ def _check_tag(fid: dict | None) -> str:
     if fid.get("method"):
         return (f"{fid['method']}: {fid['frames']} frames of {fid['objects']} objects + "
                 f"{fid['bed'] or 'no'} bed within {fid['max_err_lsb']:.2f} LSB (24-bit); "
-                f"positions checked in {fid['object_frames']} object-frames")
+                f"positions checked in {fid['object_frames']} object-frames"
+                + (f", update times read to the {fid['update_times']}"
+                   if fid.get("update_times") else ""))
     return (f"sample-exact: {fid['frames']} frames per channel within "
             f"{fid['max_err_lsb']:.2f} LSB (24-bit)")

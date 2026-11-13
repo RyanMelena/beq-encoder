@@ -208,9 +208,12 @@ def _verify(job: Job, src: Path, out: Path, fj: FilterJob, gain: float, duration
     job.progress(stage, 0)
     tick = job.ticker(stage, (duration or 0) * _SR)
     sos = design_sos(fj.filters, float(_SR))
+    version = job.procs.capture([job.s.truehdd_path, "--version"], timeout=30).stdout.strip()
+    times = atmos.decoder_update_times(version)
+    job.log(f"{version or 'truehdd'}: position update times read to the {times}")
     try:
         res = atmos.verify(src, check, sos, gain, tick=tick, min_object_corr=min_object_corr,
-                           method=method)
+                           method=method, update_times=times)
         if decoder:
             res.decoder = decoder
     finally:
@@ -223,8 +226,10 @@ def _verify(job: Job, src: Path, out: Path, fj: FilterJob, gain: float, duration
     if not res.ok:
         raise JobFailed(f"The TrueHD Atmos encode does not carry the BEQ-filtered source: "
                         f"{res.problem}")
+    timing = (f"each move at a source update, at most {res.max_update_shift} samples from "
+              "the object's own" if res.update_times == atmos.SAMPLE
+              else "update times read only to the frame")
     job.log(f"TrueHD Atmos check passed ({res.method}): {res.objects} objects + "
             f"{res.bed or 'no'} bed carried, every sample within {res.max_err_lsb:.2f} LSB, "
-            f"positions checked in {res.object_frames} object-frames (updates up to "
-            f"{res.max_update_lead} samples early, at the start of their frame)")
+            f"positions checked in {res.object_frames} object-frames ({timing})")
     return d

@@ -14,8 +14,8 @@ ARG BASE_IMAGE=debian:trixie-slim
 # The dee_shim release built into the image, the commit its tag points at, and the Rust
 # toolchain that release is built with (RUST_TOOLCHAIN in its release workflow).
 # .github/workflows/tooling-updates.yml opens a PR when a newer release is out.
-ARG DEE_SHIM_VERSION=v0.1.0
-ARG DEE_SHIM_COMMIT=294c9d1cde1400ab3c12d0d3ff8151beb05315bb
+ARG DEE_SHIM_VERSION=v0.2.0
+ARG DEE_SHIM_COMMIT=396caf4980cd878faead7f028e58300b026d6d71
 ARG DEE_SHIM_RUST=1.97.1
 
 # cavern-dump: decodes DD+ Atmos (E-AC-3 + JOC) into its objects as a Dolby Atmos master
@@ -30,24 +30,20 @@ RUN mkdir -p /out && if [ -n "${CAVERN_COMMIT}" ]; then       git clone -q https
 
 # dee_shim (https://github.com/truehdd/dee-shim, Apache-2.0): runs DEE's TrueHD encoder
 # with --as-is / --oamd-as-is / --drc, which make the encode sample-exact. Built from the
-# DEE_SHIM_VERSION release's commit with that release's toolchain, and modified by
-# docker/dee-shim/*.patch: without quiet-weight.patch an Atmos object under DEE's silence
-# threshold comes back up to 1 LSB off. `dee_shim -V` reads <version>+g<commit>-dirty
-# (dirty: patched). Linux x86_64 only, as DEE is.
+# DEE_SHIM_VERSION release's commit with that release's toolchain, unmodified.
+# Linux x86_64 only, as DEE is.
 FROM rust:${DEE_SHIM_RUST}-trixie AS dee-shim
 ARG DEE_SHIM_VERSION
 ARG DEE_SHIM_COMMIT
-COPY docker/dee-shim /build/patches
 RUN git clone -q https://github.com/truehdd/dee-shim.git /build/dee-shim \
  && cd /build/dee-shim \
  && git checkout -q "${DEE_SHIM_COMMIT}" \
  && { [ "$(git describe --tags --exact-match 2>/dev/null)" = "${DEE_SHIM_VERSION}" ] \
       || { echo "DEE_SHIM_COMMIT is not the ${DEE_SHIM_VERSION} tag"; exit 1; }; } \
- && git apply /build/patches/*.patch \
  && cargo build -q --locked --release -p dee_shim \
  && mkdir -p /out/doc \
  && cp target/release/dee_shim /out/ \
- && cp LICENSE NOTICE THIRD_PARTY_LICENSES.txt /build/patches/*.patch /out/doc/ \
+ && cp LICENSE NOTICE THIRD_PARTY_LICENSES.txt /out/doc/ \
  && /out/dee_shim -V
 
 FROM ${BASE_IMAGE}
@@ -86,7 +82,7 @@ RUN case "${TARGETARCH}" in \
  && chmod 0755 /usr/local/bin/truehdd \
  && truehdd --version
 
-# dee_shim, with its licence, notices and the patches that modify it
+# dee_shim, with its licence and notices
 COPY --from=dee-shim /out/dee_shim /usr/local/bin/dee_shim
 COPY --from=dee-shim /out/doc /usr/local/share/doc/dee-shim
 RUN [ "${TARGETARCH}" = amd64 ] || { echo "dee_shim is x86_64 only, as DEE is"; exit 1; } \

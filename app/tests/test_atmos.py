@@ -41,20 +41,22 @@ def _position(o, k):
 
 
 def _source_events(frames=FRAMES):
-    """Each object's (samplePos, pos): moved every EVERY samples, 384 samples into a DEE
+    """Each object's (samplePos, pos): moved every EVERY samples, 1112 samples into a DEE
     frame, as on a disc."""
-    return {o: [(0, _position(o, 0))] + [(k * EVERY + 384, _position(o, k))
+    return {o: [(0, _position(o, 0))] + [(k * EVERY + 1112, _position(o, k))
                                          for k in range(1, frames // EVERY)]
             for o in range(4)}
 
 
-def _dee(x, events):
+def _dee(x, events, at_sample=True):
     """What DEE codes from the filtered source: every element as it is (24-bit), the
     objects reordered, padded with 11 silent elements; each object's positions as DEE
-    codes them. Returns (audio, {encoded object k: events})."""
+    codes them and a decoder reads them (`at_sample`: to the sample, else at the start
+    of their frame). Returns (audio, {encoded object k: events})."""
     y = np.rint(sosfilt(SOS, x, axis=0) * GAIN * 2**23) / 2**23
     y = np.column_stack([y[:, 0], y[:, 1:][:, ORDER], np.zeros((len(y), 11))])
-    return y, {k: dee_positions(events[o], y[:, 1 + k]) for k, o in enumerate(ORDER)}
+    return y, {k: dee_positions(events[o], y[:, 1 + k], at_sample)
+               for k, o in enumerate(ORDER)}
 
 
 def _metadata(base, events):
@@ -73,13 +75,14 @@ def _write(tmp_path, x, events, y, enc_events, lead=LEAD, bed=("LFE",)):
                                  for k, evs in enc_events.items()})
 
 
-def _case():
+def _case(at_sample=True):
     x, events = _programme(), _source_events()
-    return (x, events, *_dee(x, events))
+    return (x, events, *_dee(x, events, at_sample))
 
 
-def _verify(tmp_path, **kw):
-    return atmos.verify(tmp_path / "src", tmp_path / "out", SOS, GAIN, **kw)
+def _verify(tmp_path, update_times=atmos.SAMPLE, **kw):
+    return atmos.verify(tmp_path / "src", tmp_path / "out", SOS, GAIN,
+                        update_times=update_times, **kw)
 
 
 def _audible_frame_update(enc_events, k):
@@ -87,11 +90,12 @@ def _audible_frame_update(enc_events, k):
     return next((i, t) for i, (t, _) in enumerate(enc_events[k]) if i and t > 2 * FS)
 
 
-def test_an_exact_encode_passes_and_reports_what_it_checked(tmp_path):
-    x, events, y, enc = _case()
+@pytest.mark.parametrize("times", [atmos.SAMPLE, atmos.FRAME_ONLY])
+def test_an_exact_encode_passes_and_reports_what_it_checked(tmp_path, times):
+    x, events, y, enc = _case(at_sample=times == atmos.SAMPLE)
     _write(tmp_path, x, events, y, enc)
     ticks = []
-    res = _verify(tmp_path, tick=ticks.append)
+    res = _verify(tmp_path, update_times=times, tick=ticks.append)
     assert res.ok, res.problem
     assert res.offset_frames == LEAD and res.frames == FRAMES
     assert res.objects == 4 and res.out_elements == 16 and res.bed == "LFE"
@@ -102,7 +106,7 @@ def test_an_exact_encode_passes_and_reports_what_it_checked(tmp_path):
     playing = sum(bool(np.any(y[f * FRAME:(f + 1) * FRAME, 1 + k]))
                   for f in range(nf) for k in range(4))
     assert res.object_frames == playing < 4 * nf
-    assert res.max_update_lead == 384  # each update moved to the start of its frame
+    assert res.update_times == times and res.max_update_shift == 0
     assert ticks[-1] == pytest.approx(FRAMES)
     report = json.dumps(res.to_dict(), allow_nan=False)  # the job API rejects NaN
     assert '"method": "sample-exact"' in report
@@ -126,8 +130,74 @@ def test_an_update_one_frame_late_fails(tmp_path):
     enc[2][i] = (t + FRAME, enc[2][i][1])
     _write(tmp_path, x, events, y, enc)
     res = _verify(tmp_path)
-    assert not res.ok and f"at {t / FS:.3f} s" in res.problem
+    assert not res.ok and f"at {t // FRAME * FRAME / FS:.3f} s" in res.problem
     assert "the position metadata does not match" in res.problem
+
+
+def test_updates_at_the_start_of_their_frame_fail_when_read_to_the_sample(tmp_path):
+    """DEE's own timing (dee-shim#3): each update moved to the start of its frame. The
+    position at each frame's end is right; when the update starts is not."""
+    x, events, y, enc = _case(at_sample=False)
+    _write(tmp_path, x, events, y, enc)
+    res = _verify(tmp_path)
+    assert not res.ok and "the position update times do not match" in res.problem
+    assert _verify(tmp_path, update_times=atmos.FRAME_ONLY).ok
+
+
+def test_updates_at_their_sample_fail_when_compared_mid_frame(tmp_path):
+    """Read only to the frame, the position is compared mid-frame: an update 1112 samples
+    in is not in effect there yet. The check must be told how the decoder reads."""
+    x, events, y, enc = _case()
+    _write(tmp_path, x, events, y, enc)
+    res = _verify(tmp_path, update_times=atmos.FRAME_ONLY)
+    assert not res.ok and "the position metadata does not match" in res.problem
+
+
+def test_read_only_to_the_frame_an_update_near_its_frame_start_passes(tmp_path):
+    """truehdd 0.6.2 reads a dee_shim 0.2 update within an access unit (40 samples) of
+    its frame's start, either side."""
+    x, events, y, enc = _case(at_sample=False)
+    enc = {k: [(t - 39 if t else t, p) for t, p in evs] for k, evs in enc.items()}
+    _write(tmp_path, x, events, y, enc)
+    res = _verify(tmp_path, update_times=atmos.FRAME_ONLY)
+    assert res.ok, res.problem
+
+
+def test_a_move_at_another_objects_update_in_the_frame_passes(tmp_path):
+    """dee_shim codes a frame's update at the sample of one of its updates: an object
+    whose own update is later in the frame moves at the other one's."""
+    x, events, y, enc = _case()
+    t0 = events[0][3][0]
+    events[1][3] = (t0 + 200, events[1][3][1])  # object 1 moves 200 samples after object 0
+    _write(tmp_path, x, events, y, enc)  # the encode moves both at object 0's
+    res = _verify(tmp_path)
+    assert res.ok, res.problem
+    assert res.max_update_shift == 200
+
+
+def test_a_move_where_the_source_updates_nothing_fails(tmp_path):
+    x, events, y, enc = _case()
+    i, t = _audible_frame_update(enc, 1)
+    enc[1][i] = (t + 1, enc[1][i][1])
+    _write(tmp_path, x, events, y, enc)
+    res = _verify(tmp_path)
+    assert not res.ok
+    assert (f"object {ORDER[1] + 1} (ID {10 + ORDER[1]}) moves at sample {t + 1}"
+            in res.problem)
+    assert "the position update times do not match" in res.problem
+
+
+@pytest.mark.parametrize("version,times", [
+    ("truehdd 0.6.2 (truehd library 0.7.2) Built: 2026-09-15", atmos.FRAME_ONLY),
+    ("truehdd 0.6.1", atmos.FRAME_ONLY),
+    ("truehdd 0.6.2-13-g77ddc52 (truehd library 0.7.2)", atmos.FRAME_ONLY),
+    ("truehdd 0.6.2-19-g0e800fb (truehd library 0.7.2)", atmos.SAMPLE),
+    ("truehdd 0.6.3", atmos.SAMPLE),
+    ("truehdd 0.7.0 (truehd library 0.8.0)", atmos.SAMPLE),
+    ("", atmos.FRAME_ONLY),
+])
+def test_how_the_decoder_reads_update_times(version, times):
+    assert atmos.decoder_update_times(version) == times
 
 
 def test_where_a_silent_object_sits_does_not_count(tmp_path):
@@ -296,7 +366,7 @@ def test_an_exact_encode_is_checked_in_one_pass(tmp_path, block):
     assert ticks == sorted(ticks) and ticks[-1] == pytest.approx(FRAMES)
     assert res.mapping == MAPPING
     assert res.element_err_lsb == pytest.approx(_errors_lsb(x, y), abs=1e-6)
-    assert res.object_frames == _playing(y) and res.max_update_lead == 384
+    assert res.object_frames == _playing(y) and res.max_update_shift == 0
 
 
 def test_objects_that_start_alike_are_told_apart_in_a_second_pass(tmp_path):

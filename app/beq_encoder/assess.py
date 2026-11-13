@@ -27,9 +27,12 @@ from . import analysis, charts, support
 
 # Bump ENCODER_REVISION whenever this encoder's output changes; add what changed.
 # BEQ tracks made below AUDIO_REVISION have audio this encoder now makes better.
-ENCODER_REVISION = 1
+ENCODER_REVISION = 2
 REVISIONS = {
     1: "the first release",
+    2: "dee_shim 0.2: Atmos position updates at their sample, not their frame's start "
+       "(up to 32 ms early before), Atmos elements in master order, and the stream ending "
+       "at the last sample (not padded to a 512-sample block)",
 }
 AUDIO_REVISION = 1      # tracks older than this: re-encode recommended
 

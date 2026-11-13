@@ -113,14 +113,13 @@ Open `http://<host>:8080`. If the encoder cannot use your DEE folder, a banner a
 
 ## Known limits
 
-- **Atmos position updates can play up to 32 ms early.** DEE moves each update to the start of its frame. See [how DEE codes object positions](docs/truehd-encoding.md#how-dee-codes-object-positions) and [dee-shim issue 3](https://github.com/truehdd/dee-shim/issues/3).
 - **Nothing checks the downmixes that DEE derives.** A TrueHD Atmos stream also carries 7.1, 5.1, and stereo presentations for decoders without Atmos. The sync check reads them only above 300 Hz, where BEQ has no effect.
-- **truehdd 0.6.2 reports `samplePos` with up to 32 samples of jitter.** The jitter changes neither the encode nor the position check.
+- **truehdd 0.6.2 leaves out the OAMD block offset.** A position update from a disc can reach DEE 32 samples (0.7 ms) early, and the check cannot compare the update times of the encode, only the position in each frame. truehdd commit 215b3ba fixes both, and the check compares update times to the sample with a truehdd release that includes it. See [how DEE codes object positions](docs/truehd-encoding.md#how-dee-codes-object-positions).
 - **You start every run from the UI.** No Radarr hook exists yet.
 
 ## Credits and licences
 
-- [dee_shim](https://github.com/truehdd/dee-shim), Apache-2.0, runs the TrueHD encoder of DEE sample-exact. The image carries it with the patches in `docker/dee-shim/`. Its licence, its notices, and the patches are in `/usr/local/share/doc/dee-shim/` in the image.
+- [dee_shim](https://github.com/truehdd/dee-shim), Apache-2.0, runs the TrueHD encoder of DEE sample-exact. Its licence and its notices are in `/usr/local/share/doc/dee-shim/` in the image.
 - [truehdd](https://github.com/truehdd/truehdd) decodes TrueHD and TrueHD Atmos.
 - [Cavern](https://github.com/VoidXH/Cavern) by VoidXH decodes DD+ Atmos objects. Its licence forbids selling it and asks for credit with a link. The terms are in [DD+ Atmos through Cavern](docs/dd-plus-atmos.md#build-the-image-without-cavern).
 - [DEEW](https://github.com/pcrlnd/deew) first ran DEE 6.7 through dee_shim for TrueHD Atmos.
