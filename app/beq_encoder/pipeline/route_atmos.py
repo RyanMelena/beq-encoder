@@ -40,10 +40,12 @@ def _require_continuous_timeline(track: media.AudioTrack, fmap: pcmio.FrameMap) 
 def _require_complete_decode(decoder: str, frames: int, fmap: pcmio.FrameMap,
                              track: media.AudioTrack) -> None:
     """The object decoders are not the ones that mapped the timeline, so the decode must
-    be shown to hold the same samples: truehdd exits 0 even when it skips to the next major
-    sync after a decode error, leaving a shorter programme with everything after the loss
-    playing early. (A clean decode's count equals the map's: measured, truehdd 0.6.2 on
-    TrueHD streams.)"""
+    be shown to hold the same samples: a decoder can exit 0 having lost audio, leaving a
+    shorter programme with everything after the loss playing early (Cavern; truehdd before
+    the first access unit it decodes, and truehdd 0.6.2 anywhere). A clean decode's count
+    equals the map's: measured, truehdd 0e800fb on TrueHD streams, also one whose last
+    access unit is padded, which 0.6.2 decoded with its padding (up to 39 samples) and
+    so failed here."""
     if frames != fmap.frames:
         raise JobFailed(f"{decoder} decoded {frames} samples of the {track.kind_name} track, "
                         f"which holds {fmap.frames}: the decode is not complete, so it was "
@@ -56,7 +58,8 @@ def encode_truehd_atmos(job: Job, dee, track: media.AudioTrack, source: tools.Lo
     raw = tools.extract_raw(job, source.path, track)
     dialnorm = tools.truehd_dialnorm(job, raw)
     src = job.work / "source"  # the decode, kept unfiltered for the check
-    _truehdd_decode(job, raw, src, "Decoding TrueHD Atmos (truehdd)", duration)
+    _truehdd_decode(job, raw, src, "Decoding TrueHD Atmos (truehdd)", duration,
+                    f"the {track.kind_name} track")
     _require_complete_decode("truehdd", caf.read_info(str(atmos.files(src)[1])).frames,
                              source.timeline, track)
     job.log(f"Source Atmos programme: {atmos.read_layout(atmos.files(src)[0]).describe()}, "
@@ -171,9 +174,14 @@ def _cavern_decode(job: Job, ec3: Path, base: Path, core_channels: int,
 
 
 def _truehdd_decode(job: Job, raw: Path, base: Path, stage: str,
-                    duration: float | None) -> None:
+                    duration: float | None, what: str) -> None:
     """truehdd: a TrueHD (Atmos) bitstream file -> DAMF at `base` (no bed conform,
-    no warp: the elements as they are in the stream)."""
+    no warp: the elements as they are in the stream).
+
+    truehdd writes silence in place of an access unit it cannot decode (from 87b2564; 0.6.2
+    left it out), so a damaged stream decodes to its full length and only its `--json`
+    summary tells: `concealedFrames`. Such a decode fails. (A loss before the first access
+    unit decodes still shortens the decode, which `_require_complete_decode` catches.)"""
     job.progress(stage, 0)
     for p in atmos.files(base):
         p.unlink(missing_ok=True)
@@ -188,14 +196,28 @@ def _truehdd_decode(job: Job, raw: Path, base: Path, stage: str,
         if duration:
             job.progress(stage, min(99.0, 100 * secs / duration))
 
+    summary: dict = {}
+
+    def read_summary(line: str) -> None:
+        if line.startswith("{"):
+            try:
+                summary.update(json.loads(line))
+            except ValueError:
+                pass
+
     try:
         with every(2, show_decoded_length):
-            job.procs.run([job.s.truehdd_path, "--loglevel", "warn", "decode",
-                           "--output-path", str(base), str(raw)])
+            job.procs.run([job.s.truehdd_path, "--loglevel", "warn", "decode", "--json",
+                           "--output-path", str(base), str(raw)], on_line=read_summary)
     except JobFailed:
         raise JobFailed("truehdd decode failed (see log)") from None
     if not all(p.is_file() for p in atmos.files(base)):
         raise JobFailed("truehdd produced no Dolby Atmos master file set")
+    lost = int(summary.get("concealedFrames") or 0)
+    if lost:
+        raise JobFailed(f"truehdd could not decode {lost} access unit(s) of {what} and wrote "
+                        "silence in their place: the stream is damaged, so the file was left "
+                        "alone")
 
 
 def _verify(job: Job, src: Path, out: Path, fj: FilterJob, gain: float, duration: float | None,
@@ -203,7 +225,8 @@ def _verify(job: Job, src: Path, out: Path, fj: FilterJob, gain: float, duration
     """Decode the encoded track and check it against the source's decode (`src`,
     kept unfiltered), BEQ-filtered afresh here (atmos.verify)."""
     check = job.work / "check"
-    _truehdd_decode(job, out, check, "Checking: decoding the encoded TrueHD Atmos", duration)
+    _truehdd_decode(job, out, check, "Checking: decoding the encoded TrueHD Atmos", duration,
+                    "the encoded TrueHD Atmos")
     stage = "Checking the TrueHD Atmos encode against the filtered source"
     job.progress(stage, 0)
     tick = job.ticker(stage, (duration or 0) * _SR)

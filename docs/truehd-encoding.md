@@ -69,10 +69,16 @@ DEE codes the positions themselves exactly, within float formatting. Three rules
 2. dee_shim 0.2 codes that update at its sample in the master, with its ramp. If the frame holds updates at different samples, the update goes at the one that moves the most elements. On its own, DEE codes every update at the start of its frame, so an update can play up to 32 ms early ([dee-shim issue 3](https://github.com/truehdd/dee-shim/issues/3)).
 3. DEE sends no updates for an object while the object is digitally silent. DEE writes the default position (-1, 1, 0) at the start of the programme, and sends the current position in the frame before the audio of the object resumes. No audible sample changes.
 
-The release of truehdd that the image ships, 0.6.2, leaves out the OAMD block offset when it decodes.
-It reads each update of the encode only to within an access unit (40 samples) of the start of its frame.
-It reads some updates of a disc 32 samples (0.7 ms) early, so the master that DEE receives carries that error. On the first 6 minutes of Edge of Tomorrow, 397 of 1,788 updates are early.
-truehdd commit 215b3ba fixes both. No release includes it yet.
+## The truehdd in the image
+
+The image builds truehdd from commit 0e800fb, which comes after the latest release, 0.6.2.
+The release gets three things wrong that the encoder depends on:
+
+- **Position update times.** 0.6.2 leaves out the OAMD block offset. It reads some updates of a disc 32 samples (0.7 ms) early: 397 of 1,788 on the first 6 minutes of Edge of Tomorrow. DEE then codes the master with that error. It reads each update of an encode only to within an access unit (40 samples) of the start of its frame, so the check cannot compare update times. Fixed in 215b3ba.
+- **The end of the stream.** 0.6.2 also decodes the padding that completes the last access unit, up to 39 samples. ffmpeg, which maps the timeline of the source, leaves the padding out. The decode of a stream whose length is not a whole number of access units then fails the length check, so a complete film can fail. Fixed in 0e800fb.
+- **Lost audio.** 0.6.2 leaves out an access unit that it cannot decode, so the decode comes out short and the length check fails the job. truehdd now writes silence in its place and counts it as `concealedFrames` in its `--json` summary. The encoder reads that summary and fails the job on any concealed access unit.
+
+`.github/workflows/tooling-updates.yml` clears the pinned commit when a release includes it. See [Keep the dependencies current](maintaining.md#keep-the-dependencies-current).
 
 ## The check that every encode must pass
 
@@ -98,8 +104,8 @@ How much of the timing the check can see depends on the truehdd that decodes the
 
 | truehdd | Where the check reads the encoded position | Update times |
 |---|---|---|
-| 0.6.2, in the image | Mid-frame | Not compared: truehdd reads them only to the frame |
-| A release after 0.6.2, or a build at least 14 commits past it | At the last sample of the frame | Compared to the sample |
+| 0.6.2 or earlier | Mid-frame | Not compared: truehdd reads them only to the frame |
+| A release after 0.6.2, or a build at least 14 commits past it, such as the one in the image | At the last sample of the frame | Compared to the sample |
 
 The position check fails on one wrong position and on any update that arrives one frame late.
 Read to the sample, it also fails on an update at the start of its frame, which is the timing of DEE on its own.

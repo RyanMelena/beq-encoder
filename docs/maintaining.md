@@ -35,6 +35,7 @@ The Dockerfile takes these build arguments:
 | `DEE_SHIM_COMMIT` | The commit of that release. The build fails if the commit is not the tag of `DEE_SHIM_VERSION`. |
 | `DEE_SHIM_RUST` | The Rust toolchain that the dee_shim release is built with. |
 | `TRUEHDD_VERSION` | The truehdd release. |
+| `TRUEHDD_COMMIT` | A truehdd commit after `TRUEHDD_VERSION`, built from source in place of the release. An empty value uses the release. The build fails if the commit does not come after the release. |
 | `CAVERN_COMMIT` | The Cavern commit. An empty value builds the image without Cavern. |
 
 The build compiles the dee_shim release unmodified, and `dee_shim -V` reports `<version>+g<commit>`.
@@ -66,6 +67,11 @@ The pull request does two things:
 
 - It changes the build arguments in the Dockerfile.
 - It lists the checks that you must run by hand before you merge.
+
+While `TRUEHDD_COMMIT` pins a truehdd commit, the truehdd pull request also decides what happens to the pin:
+
+- If the release includes the commit, the pull request clears `TRUEHDD_COMMIT`, and the image uses the release again.
+- If the release does not include the commit, the pull request keeps the pin and says so. The image build then fails, because the commit does not come after the new release. Either clear the pin and accept a decoder without its fixes, or close the pull request.
 
 The workflow needs one repository setting.
 In **Settings**, open **Actions**, then **General**, and select **Allow GitHub Actions to create and approve pull requests**.

@@ -25,18 +25,32 @@ case "$tool" in
   truehdd)
     repo=truehdd/truehdd
     current=$(arg TRUEHDD_VERSION)
+    pinned=$(arg TRUEHDD_COMMIT)
     latest=${LATEST:-$(latest_release "$repo")}
     newer "$current" "$latest" || { echo "truehdd $current: no newer release ($latest)"; exit 0; }
     set_arg TRUEHDD_VERSION "$latest"
+    built="the $current release"
+    pin_note=""
+    if [ -n "$pinned" ]; then
+      # The image builds a commit after the release in its place: back to the release only if
+      # the release includes that commit.
+      built="commit \`${pinned:0:7}\` (after $current)"
+      status=$(gh api "repos/$repo/compare/$pinned...$latest" --jq .status 2>/dev/null || true)
+      if [ "$status" = ahead ] || [ "$status" = identical ]; then
+        set_arg TRUEHDD_COMMIT ""
+        pin_note="This release includes \`${pinned:0:7}\`, so \`TRUEHDD_COMMIT\` is cleared and the image uses the release again."
+      else
+        pin_note="**This release does not include \`${pinned:0:7}\`** (compare: ${status:-unknown}). \`TRUEHDD_COMMIT\` is kept, and the image build fails until you either clear it (going back to a decoder without that commit's fixes) or keep the pin and close this PR."
+      fi
+    fi
     cat >"$body" <<EOF
-truehdd [$current → $latest](https://github.com/$repo/releases/tag/$latest) ([changes](https://github.com/$repo/compare/$current...$latest)).
+truehdd [$current → $latest](https://github.com/$repo/releases/tag/$latest) ([changes](https://github.com/$repo/compare/${pinned:-$current}...$latest)). The image built $built. $pin_note
 
 CI builds the image with it, but the tests run a fake truehdd, so nothing has exercised the new build yet. Before merging:
 
-- [ ] Encode a TrueHD Atmos excerpt and a channel-based one and read the checks in the job log ($recheck).
-- [ ] This release has the OAMD block offset fix (truehdd 215b3ba), so the check now compares Atmos update times to the sample: confirm the job log says "position update times read to the sample" and the check passes (docs/truehd-encoding.md: "The extra checks for TrueHD Atmos").
-- [ ] Bump \`ENCODER_REVISION\` in \`app/beq_encoder/assess.py\`: some of the master's update times move 32 samples later.
-- [ ] Update "Known limits" in the README and "How DEE codes object positions" in docs/truehd-encoding.md, which describe truehdd 0.6.2.
+- [ ] Encode a TrueHD Atmos excerpt and a channel-based one and read the checks in the job log ($recheck). The job log should say "position update times read to the sample".
+- [ ] Bump \`ENCODER_REVISION\` in \`app/beq_encoder/assess.py\` if the decoder's output changes.
+- [ ] Update "Known limits" in the README and docs/truehd-encoding.md where this release changes what they describe.
 EOF
     ;;
 

@@ -17,6 +17,11 @@ ARG BASE_IMAGE=debian:trixie-slim
 ARG DEE_SHIM_VERSION=v0.2.0
 ARG DEE_SHIM_COMMIT=396caf4980cd878faead7f028e58300b026d6d71
 ARG DEE_SHIM_RUST=1.97.1
+# The truehdd release, and a later commit to build from source in its place ("" for the
+# release). The commit is pinned only until a release includes it: tooling-updates.yml opens
+# a PR when a newer release is out, and that PR clears it.
+ARG TRUEHDD_VERSION=0.6.2
+ARG TRUEHDD_COMMIT=0e800fbd720348baf57061f0e47db05a0b638d15
 
 # cavern-dump: decodes DD+ Atmos (E-AC-3 + JOC) into its objects as a Dolby Atmos master
 # file set, with the Cavern library (https://github.com/VoidXH/Cavern). Cavern's licence
@@ -46,11 +51,39 @@ RUN git clone -q https://github.com/truehdd/dee-shim.git /build/dee-shim \
  && cp LICENSE NOTICE THIRD_PARTY_LICENSES.txt /out/doc/ \
  && /out/dee_shim -V
 
+# truehdd (https://github.com/truehdd/truehdd): TrueHD / TrueHD Atmos -> DAMF decoder. The
+# TRUEHDD_VERSION release's static musl build, or TRUEHDD_COMMIT built from source, which
+# must come after that release. The source build uses the dee_shim toolchain: truehdd
+# builds with any stable Rust from its rust-version (1.95) on.
+FROM rust:${DEE_SHIM_RUST}-trixie AS truehdd
+ARG TRUEHDD_VERSION
+ARG TRUEHDD_COMMIT
+ARG TARGETARCH=amd64
+RUN mkdir -p /out/doc \
+ && if [ -n "${TRUEHDD_COMMIT}" ]; then \
+      git clone -q https://github.com/truehdd/truehdd.git /build/truehdd \
+      && cd /build/truehdd \
+      && git checkout -q "${TRUEHDD_COMMIT}" \
+      && { git merge-base --is-ancestor "${TRUEHDD_VERSION}" HEAD \
+           || { echo "TRUEHDD_COMMIT does not come after ${TRUEHDD_VERSION}"; exit 1; }; } \
+      && cargo build -q --locked --release \
+      && cp target/release/truehdd /out/ \
+      && { cp LICENSE* NOTICE* /out/doc/ 2>/dev/null || true; }; \
+    else \
+      case "${TARGETARCH}" in \
+        amd64) arch=x86_64 ;; arm64) arch=aarch64 ;; *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; \
+      esac \
+      && mkdir -p /build/truehdd \
+      && curl -fsSL "https://github.com/truehdd/truehdd/releases/download/${TRUEHDD_VERSION}/truehdd-${TRUEHDD_VERSION}-${arch}-unknown-linux-musl.tar.gz" \
+         | tar -xz -C /build/truehdd --no-same-owner \
+      && cp /build/truehdd/truehdd /out/ \
+      && { cp /build/truehdd/LICENSE* /build/truehdd/NOTICE* /out/doc/ 2>/dev/null || true; }; \
+    fi \
+ && chmod 0755 /out/truehdd \
+ && /out/truehdd --version
+
 FROM ${BASE_IMAGE}
 
-# truehdd release (https://github.com/truehdd/truehdd); tooling-updates.yml opens a PR
-# when a newer one is out.
-ARG TRUEHDD_VERSION=0.6.2
 ARG TARGETARCH=amd64
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -73,14 +106,10 @@ RUN apt-get update \
       ffmpeg mkvtoolnix mediainfo libmediainfo0v5 \
  && rm -rf /var/lib/apt/lists/*
 
-# truehdd (TrueHD/Atmos -> DAMF decoder), static musl build
-RUN case "${TARGETARCH}" in \
-      amd64) arch=x86_64 ;; arm64) arch=aarch64 ;; *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; \
-    esac \
- && curl -fsSL "https://github.com/truehdd/truehdd/releases/download/${TRUEHDD_VERSION}/truehdd-${TRUEHDD_VERSION}-${arch}-unknown-linux-musl.tar.gz" \
-    | tar -xz -C /usr/local/bin --no-same-owner \
- && chmod 0755 /usr/local/bin/truehdd \
- && truehdd --version
+# truehdd, with its licence and notices where its source or archive has them
+COPY --from=truehdd /out/truehdd /usr/local/bin/truehdd
+COPY --from=truehdd /out/doc /usr/local/share/doc/truehdd
+RUN truehdd --version
 
 # dee_shim, with its licence and notices
 COPY --from=dee-shim /out/dee_shim /usr/local/bin/dee_shim

@@ -193,6 +193,10 @@ else:  # a source track: as many samples as the stream holds, less any it is tol
     write_damf(out, make_signal(frames=frames - int(os.environ.get('FAKE_TRUEHDD_LOSES', '0')),
                                 ch=12))
     move_objects(out, 3 * 1536)  # 1112 samples into a frame, where a disc's updates sit
+if '--json' in a:  # the decode's summary; FAKE_TRUEHDD_CONCEALS: access units written as silence
+    import json
+    print(json.dumps(dict(version='0.6.2', skippedFrames=0,
+                          concealedFrames=int(os.environ.get('FAKE_TRUEHDD_CONCEALS', '0')))))
 """
 
 
@@ -241,6 +245,7 @@ def env(tmp_path, assets, monkeypatch):
     monkeypatch.delenv("FAKE_DEE_ATMOS", raising=False)
     monkeypatch.delenv("FAKE_TRUEHDD_LOSES", raising=False)
     monkeypatch.delenv("FAKE_TRUEHDD_VERSION", raising=False)
+    monkeypatch.delenv("FAKE_TRUEHDD_CONCEALS", raising=False)
     s = config.load()
     movie = tmp_path / "media" / "Test Movie (2020) {tmdb-333371}"
     movie.mkdir(parents=True)
@@ -410,6 +415,18 @@ def test_a_truehd_decode_shorter_than_the_track_fails_the_job(env, monkeypatch):
     pr = media.probe(str(path))
     before = _snapshot(path)
     with pytest.raises(JobFailed, match=r"truehdd decoded \d+ samples .* which holds \d+"):
+        _run(s, path, _params(pr), tmp)
+    assert _snapshot(path) == before and not (tmp / "dee-args.txt").exists()
+
+
+def test_a_truehd_decode_that_conceals_lost_audio_fails_the_job(env, monkeypatch):
+    """truehdd writes silence for an access unit it cannot decode: full length, but damaged."""
+    s, path, tmp = env
+    monkeypatch.setenv("FAKE_TRUEHDD_CONCEALS", "3")
+    pr = media.probe(str(path))
+    before = _snapshot(path)
+    with pytest.raises(JobFailed, match=r"could not decode 3 access unit\(s\) of the .+ track "
+                                        "and wrote silence"):
         _run(s, path, _params(pr), tmp)
     assert _snapshot(path) == before and not (tmp / "dee-args.txt").exists()
 
