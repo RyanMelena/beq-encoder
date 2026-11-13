@@ -31,6 +31,7 @@ from beq_encoder.biquad import FilterSpec, design_sos
 from beq_encoder.db import DB
 from beq_encoder.pipeline import (Cancelled, FileStamp, JobFailed, JobRunner, source_pin, temp_mkv,
                                   tools)
+from beq_encoder.pipeline.artifacts import gain_label
 from beq_encoder.pipeline.processes import Processes
 from beq_encoder.pipeline.route_pcm import block_writer
 from beq_encoder.worker import JobQueue, Scanner
@@ -275,6 +276,13 @@ def _run(s, path, params, tmp):
     return r.run(), stages
 
 
+def beq_name(codec, source, result):
+    """The default track name, with the attenuation the job reported."""
+    name = f"BEQ [{gain_label(result['filter_report']['gain_db'])}] {codec} ({source})"
+    assert result["track_name"] == name
+    return name
+
+
 def _dee_args(tmp):
     return ast.literal_eval((tmp / "dee-args.txt").read_text())
 
@@ -297,7 +305,8 @@ def test_truehd_atmos_end_to_end(env, monkeypatch, decoder, times):
     after = media.probe(str(path))
     assert [t["type"] for t in after.tracks] == ["video", "audio", "audio", "audio"]
     beq = after.audio[1]
-    assert beq.name == "BEQ TrueHD Atmos (tester)" and beq.beq and not beq.default
+    assert beq.name == beq_name("TrueHD Atmos", "tester", result)
+    assert beq.beq and not beq.default
     assert "TrueHD" in beq.codec and beq.language == "en"
     assert result["filter_report"]["gain_db"] < 0
     assert abs(result["sync"]["lag_ms"]) <= 1.0 and result["sync"]["confidence"] > 0.5
@@ -464,10 +473,11 @@ def test_rerun_replaces_the_beq_track_and_its_attachments(env):
     _run(s, path, _params(media.probe(str(path))), tmp)
     first = media.probe(str(path))
     assert len(first.audio) == 3 and len(first.beq_attachments) == 3
-    _run(s, path, _params(first, replace_existing_beq=True, default_flag=True), tmp)
+    result, _ = _run(s, path, _params(first, replace_existing_beq=True, default_flag=True), tmp)
     after = media.probe(str(path))
     assert len(after.audio) == 3 and len(after.beq_tracks) == 1
-    assert after.audio[1].name == "BEQ TrueHD Atmos (tester)" and after.audio[1].default
+    assert after.audio[1].name == beq_name("TrueHD Atmos", "tester", result)
+    assert after.audio[1].default
     assert not after.audio[0].default
     assert len(after.beq_attachments) == 3
 
@@ -1241,6 +1251,27 @@ def test_a_bad_track_name_template_fails_before_the_expensive_stages(env):
     with pytest.raises(JobFailed, match="TRACK_NAME_TEMPLATE"):
         _run(s, path, _params(media.probe(str(path))), tmp)
     assert not (s.work_dir / "job-1").exists()
+
+
+def test_the_track_name_gives_the_overall_attenuation():
+    from beq_encoder.pipeline.artifacts import track_name
+    job = SimpleNamespace(s=config.Settings())
+    track = SimpleNamespace(name="", label="TrueHD Atmos 7.1")
+    entry = {"label": "aron7awol", "author": "aron7awol"}
+
+    def name(gain, template=None):
+        if template:
+            job.s.track_name_template = template
+        return track_name(job, track, "TrueHD Atmos", entry, gain)
+
+    assert name(-4.537) == "BEQ [-4.5 dB] TrueHD Atmos (aron7awol)"
+    assert name(-0.04) == "BEQ [0.0 dB] TrueHD Atmos (aron7awol)"
+    assert name(0.0) == "BEQ [0.0 dB] TrueHD Atmos (aron7awol)"
+    assert name(2) == "BEQ [+2.0 dB] TrueHD Atmos (aron7awol)"
+    # before the encode the gain is not known: no empty brackets
+    assert name(None) == "BEQ TrueHD Atmos (aron7awol)"
+    assert name(-12.26, "{codec} {gain} {source}") == "BEQ TrueHD Atmos -12.3 dB aron7awol"
+    assert name(-3.0, "BEQ {codec}") == "BEQ TrueHD Atmos"
 
 
 def test_a_beq_track_is_refused_as_a_source(env):

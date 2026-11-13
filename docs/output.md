@@ -6,10 +6,17 @@ A finished job adds one audio track, a set of Matroska tags, and three attachmen
 
 The BEQ track follows its source track and is not the default track unless `BEQ_TRACK_DEFAULT=true`.
 
-`TRACK_NAME_TEMPLATE` sets the name. The default name gives the format and the filter source:
+`TRACK_NAME_TEMPLATE` sets the name. The default name gives the overall attenuation of the track, the format, and the filter source:
 
-- `BEQ TrueHD Atmos (aron7awol)`
-- `BEQ TrueHD 7.1 (beqforge 0.3.3 flatten)`
+- `BEQ [-4.5 dB] TrueHD Atmos (aron7awol)`
+- `BEQ [0.0 dB] TrueHD 7.1 (beqforge 0.3.3 flatten)`
+
+The attenuation comes first because some players, such as Kodi, cut long track names short.
+
+The attenuation is the uniform gain that the encoder applied to every channel so that the filtered track does not clip.
+The BEQ track keeps the dialogue level of its source, so this gain is the whole level difference between the BEQ track and the original.
+When you play the BEQ track, raise the volume by that amount to match the original. For example, raise the volume by 4.5 dB for a track named `[-4.5 dB]`.
+The `{gain}` placeholder gives the value. A custom template without `{gain}` leaves the value out of the name, but the `BEQ_GAIN_DB` tag still records it.
 
 A new BEQ track replaces the BEQ track that the film already has.
 To keep both, clear **Replace an existing BEQ track** when you choose the filter.

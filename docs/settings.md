@@ -35,7 +35,7 @@ Set these variables in the `environment` block of the `beq-encoder` service in `
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TRACK_NAME_TEMPLATE` | `BEQ {codec} ({source})` | The name of the BEQ track. Also accepts `{orig}` and `{author}`. |
+| `TRACK_NAME_TEMPLATE` | `BEQ [{gain}] {codec} ({source})` | The name of the BEQ track. `{gain}` is the overall attenuation of the track, such as `-4.5 dB` (see [the track name](output.md#track)). Also accepts `{orig}` and `{author}`. |
 | `BEQ_TRACK_DEFAULT` | `false` | Makes the BEQ track the default track. |
 | `BEQ_CHARTS` | `true` | Makes the charts and the report for every BEQ track. |
 

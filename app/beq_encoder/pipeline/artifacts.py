@@ -40,16 +40,29 @@ class ChartSet:
                 "files": {k: p.name for k, p in self.files.items()}}
 
 
-def track_name(job: Job, track: media.AudioTrack, codec: str, entry: dict) -> str:
+def gain_label(gain_db: float | None) -> str:
+    """The track's overall level change against the original, as a player shows it in
+    the track's name: "-4.5 dB", "0.0 dB", "+2.0 dB". None (not known yet): ""."""
+    if gain_db is None:
+        return ""
+    g = round(float(gain_db), 1)
+    return "0.0 dB" if g == 0 else f"{g:+.1f} dB"
+
+
+def track_name(job: Job, track: media.AudioTrack, codec: str, entry: dict,
+               gain_db: float | None = None) -> str:
+    """The BEQ track's name. `gain_db`: the uniform gain the filter applied, so the
+    listener can see how far to turn the volume up; None before the encode, when the
+    name is only made to check the template."""
     source = entry.get("label") or entry.get("author") or "BEQ"
     try:
         name = job.s.track_name_template.format(
             orig=track.name or track.label, codec=codec, bitrate="",
-            author=entry.get("author", ""), source=source,
+            author=entry.get("author", ""), source=source, gain=gain_label(gain_db),
         ).strip()
     except (KeyError, IndexError, ValueError) as exc:
         raise JobFailed(f"TRACK_NAME_TEMPLATE cannot be used: {exc!r}") from None
-    name = re.sub(r"\s*\(\s*\)", "", name)
+    name = re.sub(r"\s*(\(\s*\)|\[\s*\])", "", name).strip()
     if not media.BEQ_NAME_RE.search(name):
         name = f"BEQ {name}"
     return name

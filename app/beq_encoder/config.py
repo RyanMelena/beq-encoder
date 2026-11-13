@@ -52,7 +52,8 @@ class Settings:
     default_target_peak_dbfs: float = -1.0
     keep_work: bool = False
     beq_default_flag: bool = False
-    track_name_template: str = "BEQ {codec} ({source})"
+    # the gain first: a player that cuts a long name short (Kodi) still shows it
+    track_name_template: str = "BEQ [{gain}] {codec} ({source})"
     designer_url: str = "http://beqforge-designer:8420"
     designer_timeout: float = 1800.0
     analysis_cache_gb: float = 20.0
@@ -83,7 +84,7 @@ class Settings:
 def _check_track_name_template(template: str) -> None:
     """A bad placeholder should stop the service here, not a job hours in."""
     try:
-        template.format(orig="", codec="", bitrate="", author="", source="")
+        template.format(orig="", codec="", bitrate="", author="", source="", gain="")
     except (IndexError, KeyError, ValueError) as exc:
         raise ValueError(f"TRACK_NAME_TEMPLATE {template!r} is not valid: {exc!r}") from exc
 

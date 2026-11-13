@@ -50,7 +50,7 @@ services:
       # BM_LPF_POSITION: Before
       # BM_HEADROOM: WCS
       # ANALYSIS_CACHE_GB: "20"              # 1 kHz analyses kept under /work/analysis
-      # TRACK_NAME_TEMPLATE: "BEQ {codec} ({source})"   # {orig} {codec} {source} {author}
+      # TRACK_NAME_TEMPLATE: "BEQ [{gain}] {codec} ({source})"   # {orig} {codec} {source} {author} {gain}
       # BEQ_TRACK_DEFAULT: "false"
       # KEEP_WORK: "false"                   # keep DAMF/WAV/MLP intermediates for debugging
       # SCAN_INTERVAL_HOURS: "24"            # scheduled library scan (start-up scan too)

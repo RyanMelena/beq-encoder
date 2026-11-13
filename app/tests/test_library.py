@@ -471,6 +471,8 @@ def test_a_bad_track_name_template_stops_the_service_at_start(tmp_path, monkeypa
         config.load()
     monkeypatch.setenv("TRACK_NAME_TEMPLATE", "BEQ {codec} {orig}")
     assert config.load().track_name_template == "BEQ {codec} {orig}"
+    monkeypatch.setenv("TRACK_NAME_TEMPLATE", "BEQ {codec} {orig} ({gain})")
+    assert config.load().track_name_template == "BEQ {codec} {orig} ({gain})"
 
 
 def test_watch_finds_a_new_file_and_screens_its_bass(lib_env, sources):

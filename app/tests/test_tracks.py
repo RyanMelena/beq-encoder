@@ -24,7 +24,8 @@ from beq_encoder import analysis, catalogue, config, media, synccheck, worker
 from beq_encoder.db import DB
 from beq_encoder.pipeline import JobFailed, JobRunner
 
-from .test_pipeline import ENTRY, FAKE_TRUEHDD, _dee_args, _exe, _pairs, make_dee
+from .test_pipeline import (ENTRY, FAKE_TRUEHDD, _dee_args, _exe, _pairs, beq_name,
+                            make_dee)
 
 pytestmark = pytest.mark.skipif(
     not (shutil.which("ffmpeg") and shutil.which("mkvmerge")), reason="needs ffmpeg + mkvtoolnix"
@@ -171,9 +172,9 @@ def test_a_file_ffprobe_cannot_describe_is_a_scan_error_not_a_guess(env, script)
 
 # -- the PCM route: any track -> FLAC (or TrueHD through DEE) --------------------------
 @pytest.mark.parametrize("name,expect", [
-    ("dts51", "BEQ FLAC 5.1 (tester)"),
-    ("lpcm20", "BEQ FLAC 2.0 (tester)"),
-    ("ac351", "BEQ FLAC 5.1 (tester)"),
+    ("dts51", "FLAC 5.1"),
+    ("lpcm20", "FLAC 2.0"),
+    ("ac351", "FLAC 5.1"),
 ])
 def test_non_atmos_to_flac(env, name, expect):
     s, place, tmp = env
@@ -181,7 +182,8 @@ def test_non_atmos_to_flac(env, name, expect):
     before = media.probe(str(path))
     result, stages = _run(s, path, _encode(before), tmp)
     after = media.probe(str(path))
-    assert [a.name for a in after.audio][:2] == [before.audio[0].name, expect]
+    assert [a.name for a in after.audio][:2] == [before.audio[0].name,
+                                                beq_name(expect, "tester", result)]
     beq = after.audio[1]
     assert beq.kind == "flac" and beq.channels == before.audio[0].channels
     assert beq.layout == before.audio[0].layout and not beq.default
@@ -229,7 +231,8 @@ def test_dts_to_channel_based_truehd_via_dee(env):
     pr = media.probe(str(path))
     result, _ = _run(s, path, _encode(pr, format="truehd"), tmp)
     after = media.probe(str(path))
-    assert after.audio[1].name == "BEQ TrueHD 5.1 (tester)" and "TrueHD" in after.audio[1].codec
+    assert after.audio[1].name == beq_name("TrueHD 5.1", "tester", result)
+    assert "TrueHD" in after.audio[1].codec
     args = _dee_args(tmp)
     shim, dee_args = _pairs(args[:args.index("--")]), _pairs(args[args.index("--") + 1:])
     assert {("--as-is", "on"), ("--drc", "none")} <= shim and "--oamd-as-is" not in args
@@ -363,7 +366,8 @@ def test_ddp_atmos_to_truehd_atmos_via_cavern(joc):
     assert pr.best.kind == "eac3_joc" and support_plan(pr.best).route == "joc"
     result, stages = _run(s, path, _encode(pr, format="truehd"), tmp)
     after = media.probe(str(path))
-    assert after.audio[1].name == "BEQ TrueHD Atmos (tester)" and after.audio[1].beq
+    assert after.audio[1].name == beq_name("TrueHD Atmos", "tester", result)
+    assert after.audio[1].beq
     fid = result["filter_report"]["fidelity"]
     assert fid["ok"] and fid["method"] == ("objects decoded by Cavern, encoded sample-exact "
                                            "from that decode")

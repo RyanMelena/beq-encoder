@@ -118,7 +118,7 @@ def run_encode(job: Job) -> dict:
 
     dee = _require_dee(job, fmt)
     codec = codec_label(route, track, fmt)
-    name = artifacts.track_name(job, track, codec, entry)
+    artifacts.track_name(job, track, codec, entry)  # a bad template fails before the long stages
     _check_space(job, probe, route, fmt, track)
     job.work.mkdir(parents=True, exist_ok=True)
 
@@ -155,6 +155,9 @@ def run_encode(job: Job) -> dict:
     if lead:  # the check measured them to the sample; they would play as a delay
         sync_ms -= 1000 * lead / rate
         job.log(f"The encoder added {lead} frames of leading silence: --sync now {sync_ms:.2f} ms")
+    # dialnorm is the source's own, so this gain is the whole level change against it
+    name = artifacts.track_name(job, track, codec, entry, report.get("gain_db"))
+    job.log(f"BEQ track name: {name}")
 
     return _deliver(job, stamp, probe, source, track, fmt, route, sync_ms,
                     artifacts.BeqTrack(track, codec, name, entry, report), encoded, rate)

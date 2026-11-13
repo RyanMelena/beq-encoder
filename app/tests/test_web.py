@@ -56,7 +56,7 @@ def app(tmp_path, sources, monkeypatch):  # noqa: F811
 def _wait(web, job_id, statuses, timeout=120):
     t0 = time.time()
     while time.time() - t0 < timeout:
-        row = web.db.one("SELECT status, message FROM jobs WHERE id=?", (job_id,))
+        row = web.db.one("SELECT status, message, result_json FROM jobs WHERE id=?", (job_id,))
         if row["status"] in statuses:
             return row
         time.sleep(0.2)
@@ -189,8 +189,9 @@ def test_run_review_choose_encode(app):
     assert r.status_code == 303
     row = _wait(web, job_id, {"done", "failed"})
     assert row["status"] == "done", row["message"]
-    assert "BEQ FLAC 2.0 (beqforge 9.9.9 flatten)" in row["message"]
-    assert "BEQ FLAC 2.0 (beqforge 9.9.9 flatten)" in c.get(f"/media/{mid}").text
+    name = json.loads(row["result_json"])["track_name"]
+    assert re.fullmatch(r"BEQ \[-\d+\.\d dB\] FLAC 2\.0 \(beqforge 9\.9\.9 flatten\)", name)
+    assert name in row["message"] and name in c.get(f"/media/{mid}").text
     page = c.get(f"/jobs/{job_id}").text
     assert "every sample verified" in page
     assert f'src="/jobs/{job_id}/charts/spectrum"' in page and "charts/heatmap" in page
