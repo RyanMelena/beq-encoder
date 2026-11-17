@@ -71,7 +71,7 @@ The pull request does two things:
 While `TRUEHDD_COMMIT` pins a truehdd commit, the truehdd pull request also decides what happens to the pin:
 
 - If the release includes the commit, the pull request clears `TRUEHDD_COMMIT`, and the image uses the release again.
-- If the release does not include the commit, the pull request keeps the pin and says so. The image build then fails, because the commit does not come after the new release. Either clear the pin and accept a decoder without its fixes, or close the pull request.
+- If the release does not include the commit, the pull request keeps the pin and says so. The image build then fails, because the commit does not come after the new release. Read the release notes first: a release from a maintenance branch can carry the same fixes as backports, as 0.6.3 did for commit 0e800fb. If it carries them, clear the pin. If it does not, either clear the pin and accept a decoder without those fixes, or close the pull request.
 
 The workflow needs one repository setting.
 In **Settings**, open **Actions**, then **General**, and select **Allow GitHub Actions to create and approve pull requests**.

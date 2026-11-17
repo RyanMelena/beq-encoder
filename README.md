@@ -116,7 +116,6 @@ Open `http://<host>:8080`. If the encoder cannot use your DEE folder, a banner a
 ## Known limits
 
 - **Nothing checks the downmixes that DEE derives.** A TrueHD Atmos stream also carries 7.1, 5.1, and stereo presentations for decoders without Atmos. The sync check reads them only above 300 Hz, where BEQ has no effect.
-- **The image builds an unreleased truehdd.** truehdd 0.6.2, the latest release, decodes some Atmos position updates 32 samples early, adds the padding of a stream's last access unit, and drops audio it cannot decode. Commit 0e800fb fixes all three, so the image builds that commit until a release includes it. See [the truehdd in the image](docs/truehd-encoding.md#the-truehdd-in-the-image).
 - **You start every run from the UI.** No Radarr hook exists yet.
 
 ## Credits and licences

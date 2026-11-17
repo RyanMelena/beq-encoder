@@ -20,8 +20,8 @@ ARG DEE_SHIM_RUST=1.97.1
 # The truehdd release, and a later commit to build from source in its place ("" for the
 # release). The commit is pinned only until a release includes it: tooling-updates.yml opens
 # a PR when a newer release is out, and that PR clears it.
-ARG TRUEHDD_VERSION=0.6.2
-ARG TRUEHDD_COMMIT=0e800fbd720348baf57061f0e47db05a0b638d15
+ARG TRUEHDD_VERSION=0.6.3
+ARG TRUEHDD_COMMIT=
 
 # cavern-dump: decodes DD+ Atmos (E-AC-3 + JOC) into its objects as a Dolby Atmos master
 # file set, with the Cavern library (https://github.com/VoidXH/Cavern). Cavern's licence

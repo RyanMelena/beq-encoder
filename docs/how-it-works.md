@@ -155,6 +155,9 @@ The encoder measures any silence that DEE adds in front and compensates for it i
 
 A decoder sometimes produces nothing for part of the timeline.
 TrueHD frames before a restart point do that, and so does a gap between joined segments.
+The encoder finds such a gap where the timestamp of a frame comes more than 2 ms after the end of the frame before it.
+A timeline that runs ahead of its audio a fraction of a millisecond at a time is not a gap.
+Earlier versions of the encoder left that drift in the TrueHD tracks they remuxed, about 1/6 ms with each remux.
 The encoder inserts the same length of digital silence, as a player does, and reports the gap in the job's log.
 The Atmos routes cannot fill such a gap, because the object metadata would have to move with the audio. The job fails instead.
 

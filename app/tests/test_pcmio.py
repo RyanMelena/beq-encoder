@@ -1,5 +1,6 @@
 """pcmio: bit-exact decode, start offset split, and the sample-by-sample check."""
 
+import math
 import shutil
 import subprocess
 import time
@@ -168,6 +169,35 @@ def test_find_gaps_times_out_across_the_read(tmp_path):
     with pytest.raises(RuntimeError, match="timed out"):
         pcmio.find_gaps(exe, "x.mka", 48000, timeout=0.5)
     assert time.monotonic() - started < 30
+
+
+def _listing_ffprobe(tmp_path, stamps_ms: list[float | None], samples: int) -> str:
+    """A fake ffprobe that lists one frame of `samples` per stamp (None: no timestamp)."""
+    listing = tmp_path / "frames.csv"
+    listing.write_text("".join(f"{'N/A' if t is None else f'{t / 1000:.6f}'},{samples}\n"
+                               for t in stamps_ms))
+    return _fake_ffprobe(tmp_path, f"#!/bin/sh\ncat '{listing}'\n")
+
+
+def test_find_gaps_ignores_the_drift_older_remuxes_left_in_truehd(tmp_path):
+    # Measured on a TrueHD Atmos track that mkvmerge had re-timed in many remuxes: the
+    # second frame has lost its timestamp (laced with the first), the next ones are 1 ms
+    # apart, and from there every 0.833 ms frame sits 1.5 to 2.33 ms behind the first
+    # frame's timestamp. No audio is missing, and no frame jumps.
+    n = 6000
+    stamps = [None if i == 1 else float(min(i, math.ceil(i * 5 / 6 + 1.5))) for i in range(n)]
+    m = pcmio.find_gaps(_listing_ffprobe(tmp_path, stamps, 40), "x.mka", 48000)
+    assert m.first_pts == 0.0 and m.frames == n * 40
+    assert m.gaps == []
+
+
+@pytest.mark.parametrize("jump_ms,gap", [(2, []), (3, [(10 * 48, 3 * 48)])])
+def test_find_gaps_sees_a_jump_past_the_threshold(tmp_path, jump_ms, gap):
+    # 1 ms frames; frame 10 comes `jump_ms` after the end of frame 9. A jump of exactly the
+    # threshold is not a gap, though in float seconds it once compared as more than it.
+    stamps = [float(i) if i < 10 else float(i + jump_ms) for i in range(40)]
+    m = pcmio.find_gaps(_listing_ffprobe(tmp_path, stamps, 48), "x.mka", 48000)
+    assert m.gaps == gap and m.frames == 40 * 48
 
 
 def test_long_silent_opening_is_not_mistaken_for_missing_samples():

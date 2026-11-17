@@ -60,7 +60,7 @@ def lead(first_pts_s: float, rate: int) -> tuple[int, int]:
     return whole, pad
 
 
-GAP_THRESHOLD_S = 0.002  # above the jitter of millisecond-rounded Matroska timestamps
+GAP_THRESHOLD_S = 0.002  # above the jitter of two millisecond-rounded Matroska timestamps
 
 
 @dataclass(slots=True)
@@ -78,8 +78,18 @@ def find_gaps(ffprobe: str, path: str, rate: int, audio_index: int = 0,
               threshold_s: float = GAP_THRESHOLD_S, timeout: float = 4 * 3600,
               on_progress: Callable[[float], None] | None = None,
               popen: Popen = subprocess.Popen) -> FrameMap:
-    """Walk the decoded frames' timestamps; report where the decoded audio falls
-    behind its own timeline by more than `threshold_s` (a gap to fill).
+    """Walk the decoded frames' timestamps; report each gap to fill. A gap is a jump of
+    more than `threshold_s` from the end of one timestamped frame to the next one's
+    timestamp, and it is as long as the decoded audio has then fallen behind its own
+    timeline.
+
+    Lost audio shows as such a jump. A timeline that creeps ahead of its samples a little
+    at a time is timestamp error, and is not a gap. Remuxes before the remux kept the
+    timestamps of TrueHD (tools._timestamps_v2) left that error in a track: each one
+    moved every frame after the first about 1/6 ms later. Measured against the first
+    frame alone, as the walk once did, the error built up into a gap after enough remuxes,
+    and a TrueHD Atmos track was then refused. Times are compared in whole samples, so a
+    jump of exactly `threshold_s` is not a gap.
 
     A walk that stops short proves nothing about what comes after it, so a non-zero exit
     or running past `timeout` (the whole walk, not only its end) raises RuntimeError."""
@@ -88,7 +98,9 @@ def find_gaps(ffprobe: str, path: str, rate: int, audio_index: int = 0,
          "-show_entries", "frame=pts_time,nb_samples", "-of", "csv=p=0", path],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1 << 20,
     )
+    limit = round(threshold_s * rate)
     first: float | None = None
+    last_pts, last_cum = 0.0, 0  # the last timestamped frame, and the frames before it
     cum = inserted = lines = 0
     gaps: list[tuple[int, int]] = []
     timed_out = threading.Event()
@@ -121,12 +133,12 @@ def find_gaps(ffprobe: str, path: str, rate: int, audio_index: int = 0,
                     on_progress(pts)
                 if first is None:
                     first = pts
-                else:
-                    d = pts - (first + (cum + inserted) / rate)
-                    if d > threshold_s:
-                        n = int(round(d * rate))
+                elif round((pts - last_pts) * rate) - (cum - last_cum) > limit:
+                    n = round((pts - first) * rate) - (cum + inserted)
+                    if n > 0:
                         gaps.append((cum, n))
                         inserted += n
+                last_pts, last_cum = pts, cum
             cum += nb
         rc = proc.wait()
     finally:
