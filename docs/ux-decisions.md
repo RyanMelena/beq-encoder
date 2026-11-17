@@ -69,7 +69,7 @@ Opening the wizard is how the user asks for the result, so the app does not deco
 The job measures every filter at the preset cutoffs, off, 5, 10, 15, 20, and 25 Hz, and at the default from the Settings page.
 The app stores the figures in a `levels` table.
 
-The Filter step offers **Choose cutoff**, a list of the presets, and **Custom cutoff**, any value up to 40 Hz.
+The Filter step offers one cutoff menu: the presets, then **Custom…**, which takes any value up to 40 Hz.
 A custom cutoff redraws the curves at once.
 Its level change is measured when the user sets it, by a measuring job for that cutoff only.
 Once the track has been read, that job takes a few seconds.
@@ -179,7 +179,7 @@ Each chip counts the films that the other filters and the search match.
 Up to 960 px wide, each row is a card, and a **Sort by** menu with a named direction, such as *A to Z*, replaces the column headings.
 
 **The clip's window is one sentence and a slider.**
-The Options step for a clip reads "Create clip from [start] with [duration] second duration".
+The Options step for a clip reads "Clip starts at [start] and lasts [duration] seconds".
 A window over the bass-over-time chart shows the same clip. Dragging it, clicking the chart, or the arrow keys move the start, and the fields and the window stay in step.
 The step recommends a window: the heaviest bass passage for the clip's duration, once the level changes are measured.
 A dashed outline marks it on the chart, and the start begins there.

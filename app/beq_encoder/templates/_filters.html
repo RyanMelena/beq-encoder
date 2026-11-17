@@ -3,15 +3,31 @@
 
 {# The headings, the same for every group on a page. `pick`: the wizard's column of radios or
    tick boxes. `forge`: the film has a BEQ Forge filter, so every group has a column for BEQ
-   Forge's confidence. Each figure's heading says what the figure means. #}
+   Forge's confidence. Each figure's heading has a tooltip that says what the figure means. #}
 {% macro head(pick=false, forge=false) -%}
 <thead><tr>
   {% if pick %}<th scope="col" class="pick"><span class="sr-only">Choose</span></th>{% endif %}
   <th scope="col" class="cmp-filter">Filter</th>
-  <th scope="col" class="fig">Bass restored <span class="gloss">{{ TERMS.bass }}</span></th>
-  <th scope="col" class="fig wide">Level change <span class="gloss">{{ TERMS.level }}</span></th>
-  {% if forge %}<th scope="col" class="fig sure">BEQ Forge's confidence <span class="gloss">{{ TERMS.confidence }}</span></th>{% endif %}
+  <th scope="col" class="fig">Bass <span class="tip-hold">restored {{ tip('Bass restored', TERMS.bass) }}</span></th>
+  <th scope="col" class="fig wide">Level <span class="tip-hold">change {{ tip('Level change', TERMS.level) }}</span></th>
+  {% if forge %}<th scope="col" class="fig sure">BEQ Forge's <span class="tip-hold">confidence {{ tip("BEQ Forge's confidence", TERMS.confidence) }}</span></th>{% endif %}
 </tr></thead>
+{%- endmacro %}
+
+{# What a word means, behind a small button beside it: shown on hover and on focus, so a
+   keyboard or a tap reaches it, and hidden again by Escape. A screen reader reads it as the
+   button's name. Put the word before it in a .tip-hold so the two never wrap apart. #}
+{% macro tip(term, text) -%}
+{% set said = text if text.endswith('.') else text ~ '.' -%}
+<button type="button" class="tip" aria-label="{{ term }}: {{ said }}"><span class="tip-mark" aria-hidden="true">?</span><span class="tip-text" aria-hidden="true">{{ said }}</span></button>
+{%- endmacro %}
+
+{# The chart beside a group's list, with what its lines are under it. Pointing at a filter's
+   row brings its line forward (base.html). #}
+{% macro chart(svg) -%}
+<div class="filter-curve">{{ svg|safe }}
+  <p class="small muted chart-note"><span class="tip-hold">Gain on the original track {{ tip('The chart', TERMS.curve) }}</span></p>
+</div>
 {%- endmacro %}
 
 {# A filter's number and its line, as the chart beside the list draws it, then its name and marks. #}
@@ -35,7 +51,7 @@
 <span class="v level{{ '' if said.endswith('dB') else ' pending' }}"{% if digest %} data-digest="{{ digest }}"{% endif %}>{{ said }}</span>
 {%- endmacro %}
 
-{# Said once over a list on a narrow screen, which has no heading row: what the headings say on a wide one. #}
+{# Said once over a list on a narrow screen, which has no heading row: the headings' tooltips. #}
 {% macro notes(forge=false) -%}
-<p class="small muted cmp-gloss">Bass restored: {{ TERMS.bass[:1]|lower ~ TERMS.bass[1:] }}. Level change: {{ TERMS.level[:1]|lower ~ TERMS.level[1:] }}.{% if forge %} BEQ Forge's confidence: {{ TERMS.confidence[:1]|lower ~ TERMS.confidence[1:] }}.{% endif %}</p>
+<p class="small muted cmp-gloss"><span class="tip-hold">Bass restored {{ tip('Bass restored', TERMS.bass) }}</span> · <span class="tip-hold">Level change {{ tip('Level change', TERMS.level) }}</span>{% if forge %} · <span class="tip-hold">BEQ Forge's confidence {{ tip("BEQ Forge's confidence", TERMS.confidence) }}</span>{% endif %}</p>
 {%- endmacro %}

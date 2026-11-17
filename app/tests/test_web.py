@@ -24,6 +24,8 @@ PCM = {"title": "Test Movie", "year": 2020, "theMovieDB": "333371", "audioTypes"
        "catalogue_url": "https://beqcatalogue.example/test-movie",
        "filters": [{"type": "LowShelf", "freq": 22, "gain": 4, "q": 0.8, "count": 1}]}
 BROWSER = {"accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+# A primary button's text: a button that is neither a ghost button nor a tooltip's.
+PRIMARY = re.compile(r'<button(?![^>]*(?:ghost|class="tip"))[^>]*>(.*?)</button>', re.S)
 
 
 @pytest.fixture
@@ -211,7 +213,7 @@ def test_a_file_the_app_cannot_read_says_so_once_beside_rescan_file(app):
     page = c.get(f"/films/{mid}").text
     assert _text(page.split("<main>")[1]).count("could not read the file") == 1
     head = page.split('class="film-head"')[1].split("</header>")[0]
-    assert re.findall(r"<button(?![^>]*ghost)[^>]*>(.*?)</button>", head) == ["Rescan file"]
+    assert PRIMARY.findall(head) == ["Rescan file"]
     assert page.count(">Rescan file<") == 1 and ">Add BEQ track</a>" not in page
     for part in ("filters", "tracks", "rating"):
         assert f'id="{part}"' not in page, "a part with nothing to show is not a heading"
@@ -337,7 +339,7 @@ def test_a_failed_encode_says_what_happened_and_offers_one_fix(app):
     change = re.search(r'<a href="([^"]+)">change the filter or the low-end cutoff</a>', page)
     assert 'class="step open" id="filter"' in c.get(unescape(change[1])).text, \
         "advice to change a choice links to the step that changes it"
-    primary = re.findall(r"<button(?![^>]*ghost)[^>]*>(.*?)</button>", page, re.S)
+    primary = PRIMARY.findall(page)
     assert primary == ["Try again"] and 'class="btn"' not in page, \
         "the fix is the one primary button while the failure leads the page"
     assert ">Add BEQ track</a>" in page and "Starts adding a BEQ track again" in result
@@ -507,8 +509,7 @@ def test_every_wizard_step_has_one_primary_button_named_for_what_it_does(app):
         for step in ("track", "filter", "options"):
             page = c.get(f"/films/{mid}/{output}?step={step}").text
             open_step = page.split('class="step open"')[1].split('<li class="step')[0]
-            primary = [_text(b) for b in re.findall(r"<button(?![^>]*ghost)[^>]*>(.*?)</button>",
-                                                   open_step, re.S)]
+            primary = [_text(b) for b in PRIMARY.findall(open_step)]
             assert primary == [named.get(step, last)], (output, step, primary)
 
 

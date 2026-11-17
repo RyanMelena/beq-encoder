@@ -122,7 +122,7 @@
       {% set older = f.filters|selectattr('newer', 'equalto', x.digest)|first %}
       {% set addable = add.can and x.bands and not x.gone and not x.in_use %}
       {# One line of facts to compare, then one line of what to do with the filter. #}
-      <tbody class="filter{{ ' in-use' if x.in_use }}" id="filter-{{ numbers[x.digest] }}">
+      <tbody class="filter{{ ' in-use' if x.in_use }}" id="filter-{{ numbers[x.digest] }}" data-n="{{ numbers[x.digest] }}">
       <tr>
         <td class="cmp-name">{{ cmp.name(x, numbers[x.digest]) }}{% if x.in_use %} <span class="small">{% for u in x.uses %}<span class="in-use-by">{{ 'by' if loop.first }} <a href="#track-{{ u.track_id }}">Track {{ u.track_id }}</a></span>{% if u.cutoff_hz != cutoff %} at a low-end cutoff of {{ u.cutoff_hz|cutoff }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}{% for l in x.labels if l != x.gone %} <span class="tag">{{ l }}</span>{% endfor %}{% if older %} <span class="tag">Newer revision of filter {{ numbers[older.digest] }}</span>{% endif %}{% if x.digest in marks %} <span class="tag">{{ marks[x.digest]|ordinal }} audio track in the BEQ clip{% if r.cutoff_hz != cutoff %}, at a low-end cutoff of {{ r.cutoff_hz|cutoff }}{% endif %}</span>{% endif %}
           {{ cmp.about(x, g.made_for, same) }}</td>
@@ -143,7 +143,7 @@
       </tbody>
       {% endfor %}
     </table>
-    <div class="filter-curve">{{ g.chart|safe }}</div>
+    {{ cmp.chart(g.chart) }}
   </div>
   {% if folds %}</details>{% endif %}
   {% endfor %}

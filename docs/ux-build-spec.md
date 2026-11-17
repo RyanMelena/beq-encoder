@@ -63,7 +63,7 @@ A job's `phase` is `design`, `measure`, or `encode`.
 4. Under the list, **Add BEQ track to selected** and a pager with rows per page.
 5. One small link to the Settings page, in the page header.
 
-Up to 960 px wide, each row is a card, and a **Sort by** menu with a named direction replaces the column headings.
+On a narrow screen, each row is a card, and a **Sort by** menu with a named direction replaces the column headings.
 
 ### Data
 
@@ -91,7 +91,7 @@ The list reads `media` with the three new columns and each film's active and las
 The order is in [decision 2](ux-decisions.md#2-the-film-detail-page-puts-filters-first).
 
 - The heading holds **Add BEQ track** as the primary button and **Make a BEQ clip** as the secondary button.
-- Each filter shows its origin, the track it was made for, when it last changed, its curve, its bass restored, and its level change. An in-use filter has a tick and the words "In use".
+- Each filter shows its origin, the track it was made for, when it last changed, its curve, its bass restored, and its level change. An in-use filter is marked "In use".
 - The activities sit in a panel of their own, above the latest result. Each names its work, links to its entry in the Activity log, and has **Cancel**.
 - Each filter has a link that opens the wizard at the Options step with that filter.
 - Each BEQ track shows its filter, its low-end cutoff, its source track, its level change, and its charts.
@@ -104,9 +104,9 @@ One `Film`, with its level figures at the default cutoff.
 ### Checks
 
 - [ ] The page shows the film's filters with no job started.
-- [ ] The page has exactly two buttons that open the wizard, and **Add BEQ track** is the primary one.
+- [ ] The heading has exactly two buttons that open the wizard, and **Add BEQ track** is the primary one.
 - [ ] A filter's link opens the wizard with that filter selected.
-- [ ] A filter that a BEQ track was made from is marked "In use", with a tick.
+- [ ] A filter that a BEQ track was made from is marked "In use".
 - [ ] An in-use filter that the catalogue no longer lists stays in the list, labelled "no longer in the catalogue".
 - [ ] A running activity shows its overall progress and a **Cancel** button.
 - [ ] After a failure, the page says what happened in one sentence, says that the film file was not changed, and offers one fix.
@@ -130,8 +130,8 @@ Tracks that cannot get one sit under a collapsed heading, each with its reason.
 The button is **Continue to filter**.
 
 **Filter.**
-The low-end cutoff is at the top of the step.
 Each filter shows its origin, its curve, its bass restored, and its level change.
+The low-end cutoff follows the filters, whose figures and curves it sets.
 To add a BEQ track, the user selects one filter.
 To make a clip, the user ticks up to four filters.
 Filters for other tracks and the BEQ Forge button are collapsed inside the step.
@@ -141,7 +141,7 @@ The button is **Continue to options**.
 **Options.**
 To add a BEQ track, the step shows the output format, the level change, whether the BEQ track becomes the default track, and whether it replaces an existing BEQ track.
 The button is **Add BEQ track**.
-To make a clip, the step reads "Create clip from [start] with [duration] second duration", shows a window to drag over the bass-over-time chart, and shows the clip folder.
+To make a clip, the step reads "Clip starts at [start] and lasts [duration] seconds", shows a window to drag over the bass-over-time chart, and shows the clip folder.
 The button is **Make BEQ clip**.
 The step says what the work changes.
 
@@ -156,10 +156,13 @@ One `Film`, the film's draft, the level figures for every offered cutoff, and th
 - [ ] A filter made for the track is preselected. A filter made for another track is never preselected.
 - [ ] The heading says "Add a BEQ track to" or "Make a BEQ clip of", then the film, and its link switches the output and keeps the choices.
 - [ ] A change of cutoff changes each filter's curve, bass restored, and level change, with no job started.
+- [ ] The chart marks the low-end cutoff and names its frequency. The mark follows a change of cutoff, and Off has none.
+- [ ] Pointing at a filter's row, or moving the keyboard into it, highlights the row and picks out its line in the chart. The film detail page does the same.
+- [ ] Each figure, the cutoff and the chart explain themselves in a tooltip beside their names, which a keyboard or a tap can open.
 - [ ] A filter with no figure shows "Measuring", and the user can still continue.
 - [ ] The BEQ Forge button states its duration. After it is pressed, the wizard stays usable, and the new filter joins the list when the design ends.
 - [ ] The choices survive a step back and a return to the wizard later.
-- [ ] The Filter step offers **Choose cutoff** and **Custom cutoff**. A custom cutoff redraws the curves and measures only its own level change.
+- [ ] The Filter step's cutoff menu offers the preset cutoffs and a custom one. A custom cutoff redraws the curves and measures only its own level change.
 - [ ] The clip's window and its two fields stay in step.
 - [ ] The clip's Options step recommends a window for its duration, and offers **Use the recommendation** after the user moves away from it.
 - [ ] The Options step for a BEQ track says that it changes the film file. The Options step for a clip says that it does not, and shows the clip folder with no path field.

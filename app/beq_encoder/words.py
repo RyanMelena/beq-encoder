@@ -127,14 +127,16 @@ def origin(entry: dict) -> str:
 
 def peak_boost(bands: list[dict], cutoff_hz: float = 0.0) -> tuple[float, float] | None:
     """The most a filter changes the bass and where, with the low-end cutoff applied: (dB,
-    Hz). The dB is negative for a filter that only cuts. None for bands that do not parse."""
+    Hz). The dB is negative for a filter that only cuts. None for bands that do not parse.
+    The search starts below the cutoff too: a filter's shelves often still climb there, so
+    the most it adds can sit an octave under the cutoff."""
     try:
         specs = [FilterSpec.from_catalogue(f) for f in bands or []]
     except (KeyError, ValueError):
         return None
     if not specs:
         return None
-    f = np.geomspace(max(1.0, cutoff_hz), 160.0, 600)
+    f = np.geomspace(1.0, 160.0, 600)
     r = response_db(specs, f, 48000.0, highpass_hz=cutoff_hz)
     i = int(np.argmax(r))
     if r[i] <= 0:
@@ -175,14 +177,19 @@ def cutoff_words(hz: float | None) -> str:
 # What each word means, in a few words, where the user decides on it: a column's heading, a
 # part's first line, a field's help.
 TERMS = {
-    "bass": "The most the filter adds back",
-    "level": "How far the app turns the BEQ track down to make room for the restored bass. An "
-             "estimate until the track is made",
+    "bass": "The most the filter adds back, and at what frequency, with the low-end cutoff "
+            "applied",
+    "level": "How far the app turns the BEQ track down to make room for the restored bass, "
+             "with the low-end cutoff applied. An estimate until the track is made",
     "rating": "How likely a BEQ track is to help. The bass check sets it from the film's "
               "roll-off: deep bass that falls away, which a filter can restore",
     "confidence": "How sure BEQ Forge is that its design suits this track, out of 100",
     "cutoff": "Cuts bass below this frequency, so that bass too low for your subwoofer does "
               "not make the app turn the rest of the track down.",
+    "curve": "Each line is what its filter, with the low-end cutoff, does to the original "
+             "track. Mastering turned the track's deepest bass down, and the filter turns it "
+             "back up, so the restored bass is close to flat. The dashed upright line is the "
+             "low-end cutoff: below it, the restored bass falls away by 24 dB an octave",
     "dbfs": "0 dBFS is the loudest a track can hold",
     "lossy": "Lossy: compressed with some of the sound removed. A BEQ track made from a lossy "
              "track can't put that back.",

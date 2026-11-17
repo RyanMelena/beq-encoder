@@ -67,6 +67,40 @@ function openTarget() {
 }
 addEventListener('hashchange', openTarget);
 addEventListener('DOMContentLoaded', openTarget);
+// A filter's row and its line in the chart beside it: pointing at the row, or moving the
+// keyboard into it, marks the row and brings its line forward. The pointer wins over focus.
+document.querySelectorAll('.compare').forEach(group => {
+  const chart = group.querySelector('.filter-curve svg.resp');
+  let pointed = null, focused = null;
+  function mark() {
+    const row = pointed || focused;
+    group.querySelectorAll('tbody.filter.hl').forEach(r => r.classList.remove('hl'));
+    if (!chart) return;
+    chart.classList.toggle('picking', !!row);
+    chart.querySelectorAll('.hl').forEach(e => e.classList.remove('hl'));
+    if (!row) return;
+    row.classList.add('hl');
+    chart.querySelectorAll(`[data-n="${row.dataset.n}"]`).forEach(e => {
+      e.classList.add('hl');
+      if (e.tagName === 'polyline') e.parentNode.appendChild(e);  // drawn last, so on top
+    });
+  }
+  group.querySelectorAll('tbody.filter[data-n]').forEach(row => {
+    row.addEventListener('mouseenter', () => { pointed = row; mark(); });
+    row.addEventListener('mouseleave', () => { if (pointed === row) pointed = null; mark(); });
+    row.addEventListener('focusin', e => { focused = e.target.matches(':focus-visible') ? row : null; mark(); });
+    row.addEventListener('focusout', e => { if (!row.contains(e.relatedTarget)) { focused = null; mark(); } });
+  });
+});
+// Escape hides an open tooltip until the pointer or the focus leaves its button.
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('button.tip:is(:hover, :focus)').forEach(b => b.classList.add('hush'));
+});
+for (const ev of ['mouseout', 'focusout']) addEventListener(ev, e => {
+  const tip = e.target.closest?.('button.tip');
+  if (tip && !tip.contains(e.relatedTarget)) tip.classList.remove('hush');
+});
 </script>
 {% block scripts %}{% endblock %}
 </body>

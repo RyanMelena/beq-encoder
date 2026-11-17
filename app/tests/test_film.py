@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from beq_encoder import activity, film, store
+from beq_encoder import activity, film, store, words
 from beq_encoder.catalogue import Catalogue
 from beq_encoder.db import DB
 from beq_encoder.media import AudioTrack, ProbeResult
@@ -169,6 +169,14 @@ def test_the_low_end_cutoff_changes_the_curve_and_the_bass_restored(env):
     f = film.load(db, cat, _film(db, _track(1))).filter("cat-atmos")
     assert f.curve(0).bass != f.curve(30).bass
     assert f.curve(0).svg != f.curve(30).svg
+
+
+def test_the_bass_restored_finds_a_peak_below_the_cutoff():
+    # Shelves stacked at the cutoff still climb an octave under it, as many catalogue
+    # filters do, so the most the filter adds sits below the cutoff, not at it.
+    shelves = [{"type": "LowShelf", "freq": 22.7, "gain": 7.6, "q": 0.9, "count": 7}]
+    gain, at = words.peak_boost(shelves, 20.0)
+    assert 39 < gain < 41 and 14 < at < 18, (gain, at)
 
 
 def _job(db, mid, phase, status, result=None, message=None, **params):

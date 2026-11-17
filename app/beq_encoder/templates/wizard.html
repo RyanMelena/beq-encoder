@@ -34,7 +34,7 @@
     {{ cmp.head(pick=true, forge=forge) }}
     {% for x in group %}
     {% set id = 'f-' ~ x.digest|replace(':', '-') %}
-    <tbody class="filter{{ ' in-use' if x.in_use }}">
+    <tbody class="filter{{ ' in-use' if x.in_use }}" data-n="{{ numbers[x.digest] }}">
     <tr>
       <td class="pick">
         {% if add %}<input type="radio" name="filter" id="{{ id }}" value="{{ x.digest }}"{{ ' checked' if x.digest == d.digest }}>
@@ -51,7 +51,7 @@
     </tbody>
     {% endfor %}
   </table>
-  <div class="filter-curve">{{ chart|safe }}</div>
+  {{ cmp.chart(chart) }}
 </div>
 {% endmacro %}
 
@@ -106,7 +106,7 @@
     {# One control, the same as on the Settings page: a list of cutoffs whose last entry takes any value. #}
     <div class="cutoff" id="cutoff-set" role="group" aria-labelledby="cutoff-name">
       <div class="cutoff-modes">
-        <label id="cutoff-name" for="cutoff"><b>Low-end cutoff</b></label>
+        <span class="tip-hold"><label id="cutoff-name" for="cutoff"><b>Low-end cutoff</b></label> {{ cmp.tip('Low-end cutoff', TERMS.cutoff ~ " Each filter's figures and curve follow it.") }}</span>
         <select name="cutoff" id="cutoff">
           {% for hz in presets %}<option value="{{ '%g'|format(hz) }}"{{ ' selected' if hz == d.cutoff and not custom }}>{{ hz|cutoff }}{{ ' (your default)' if hz == cutoff_default }}</option>{% endfor %}
           <option value="custom"{{ ' selected' if custom }}>Custom…</option>
@@ -115,7 +115,6 @@
         <span class="small muted">Off, or up to {{ '%g'|format(cutoff_max) }} Hz</span>
         <noscript><button class="ghost small" name="step" value="filter">Show the figures at this cutoff</button></noscript>
       </div>
-      <p class="small muted">{{ TERMS.cutoff }} Each filter's figures and curve above follow it.</p>
       <p class="small muted" id="custom-note"{{ ' hidden' if not custom }}>The level change at a custom cutoff is measured when you set it. Once the track has been read, that takes a few seconds.</p>
     </div>
     <p class="actions"><button name="step" value="options">{{ next.filter }}</button> <a href="/films/{{ f.id }}">Cancel</a></p>{% endif %}
@@ -160,8 +159,8 @@
       <dt>Output format</dt>
       <dd>{% if formats|length > 1 %}<select name="format" aria-label="Output format">{% for v, label in formats %}<option value="{{ v }}"{{ ' selected' if v == format }}>{{ label }}</option>{% endfor %}</select>
           {% elif formats %}{{ formats[0][1] }}<input type="hidden" name="format" value="{{ formats[0][0] }}">{% else %}<span class="warn-text">None available now: the encoder is not ready.</span>{% endif %}</dd>
-      <dt>Level change</dt>
-      <dd>{% if chosen %}{{ cmp.level(levels[chosen[0].digest][ck], chosen[0].digest) }}{% endif %}<br><span class="small muted">{{ TERMS.level }}.</span></dd>
+      <dt>Level <span class="tip-hold">change {{ cmp.tip('Level change', TERMS.level) }}</span></dt>
+      <dd>{% if chosen %}{{ cmp.level(levels[chosen[0].digest][ck], chosen[0].digest) }}{% endif %}</dd>
     </dl>
     <p><label class="chk"><input type="checkbox" name="default_flag"{{ ' checked' if d.default_flag }}> Make players start with the BEQ track</label><br>
       <span class="small muted">Unticked, players start with the track they do now, and you choose the BEQ track in the audio menu.</span></p>
@@ -226,7 +225,7 @@ function save(fields) {
 }
 function show() {
   const k = key();
-  document.querySelectorAll('polyline[data-cutoff]').forEach(p => p.toggleAttribute('hidden', p.dataset.cutoff !== k));
+  document.querySelectorAll('.resp [data-cutoff]').forEach(p => p.toggleAttribute('hidden', p.dataset.cutoff !== k));
   document.querySelectorAll('.bass[data-digest]').forEach(e => { e.textContent = bass[e.dataset.digest][k] || '—'; });
   document.querySelectorAll('.level[data-digest]').forEach(e => {
     e.textContent = levels[e.dataset.digest][k];

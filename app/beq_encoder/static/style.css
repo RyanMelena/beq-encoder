@@ -827,13 +827,12 @@ li#filter.step.open { display: flex; flex-direction: column; }
    the rows together. Each row's number and line are its curve's in the chart. On a narrow
    screen each row is a card, and the chart sits under the list. */
 .compare { display: grid; gap: 8px 24px; margin: 0 0 12px; align-items: start; }
-@media (min-width: 1100px) { .compare { grid-template-columns: minmax(0, 1fr) 340px; } }
+@media (min-width: 1100px) { .compare { grid-template-columns: minmax(0, 3fr) minmax(340px, 2fr); } }
 .cmp th.fig { min-width: 150px; }
 .cmp td[data-label^="Last"], .cmp td[data-label="Designed"] { white-space: nowrap; }
 table.cmp { width: 100%; border-collapse: collapse; }
 .cmp th { text-align: left; font-weight: 600; font-size: var(--small); padding: 6px 12px 6px 0;
           border-bottom: 1px solid var(--line); vertical-align: bottom; }
-.cmp th .gloss { display: block; font-weight: 400; color: var(--muted); font-size: 12px; line-height: 1.3; }
 .cmp td { padding: 8px 12px 8px 0; vertical-align: top; }
 .cmp tbody tr:last-child td { border-bottom: 1px solid var(--line); }
 .cmp tr.cmp-do td { padding-top: 0; }
@@ -843,7 +842,21 @@ svg.resp.swatch { display: inline-block; width: 30px; height: 8px; margin: 0; ve
 .cmp-more { display: flex; flex-wrap: wrap; gap: 2px 16px; align-items: center; }
 .cmp-more details { margin: 0; }
 .cmp-more details[open] { flex-basis: 100%; }
-.compare .filter-curve svg.resp { height: 220px; margin: 0; }
+.compare .filter-curve svg.resp { height: 300px; margin: 0; }
+.chart-note { margin: 2px 0 0; }
+/* The low-end cutoff on the chart: an upright dashed line, named at its top. */
+.resp .cutoff-mark { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.resp .cutoff-label { font-family: inherit; font-size: 12px; }
+/* Pointing at a filter's row (or moving the keyboard into it) marks the row with a tint and
+   a bar at its edge, and brings its line forward in the chart: the others fade, and its line
+   thickens. */
+.cmp tbody.filter td { transition: background-color .12s; }
+.cmp tbody.filter.hl td { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.cmp tbody.filter.hl td:first-child { box-shadow: inset 3px 0 0 var(--accent-fill); }
+@media (min-width: 761px) { .cmp td:first-child, .cmp th:first-child { padding-left: 10px; } }
+.resp .curve, .resp .key { transition: opacity .12s, stroke-width .12s; }
+.resp.picking .curve:not(.hl), .resp.picking .key:not(.hl) { opacity: .15; }
+.resp polyline.curve.hl { stroke-width: 3.6; }
 .cmp-gloss { display: none; margin: 0 0 8px; }
 /* Each filter's line has its own pattern as well as its own colour. */
 .resp .curve.c1 { stroke-dasharray: 9 4; } .resp .curve.c2 { stroke-dasharray: 2 4; }
@@ -973,10 +986,30 @@ h2.settings-group { margin: 36px 0 0; padding-top: 16px; border-top: 1px solid v
 }
 .lib-table td.row-act { text-align: left; }
 .bulk-top { margin: 0 0 6px; }
-/* The filter table: a heading's explanation does not widen its column past its figures, so
-   the filter's name keeps its room. */
-.cmp th .gloss { max-width: 27ch; }
 .cmp th.fig.sure { min-width: 0; }
+/* What a word means, in a small round button beside it that shows the meaning on hover or
+   focus. The last heading's opens leftward so it stays on the page. On a narrow screen the
+   line of tips spans its paragraph, so each opens under the line at the paragraph's width. */
+button.tip { position: relative; display: inline-grid; place-content: center; width: 24px; height: 24px;
+  min-height: 0; margin: -4px -2px -4px -1px; padding: 0; vertical-align: middle; border: 0; border-radius: 50%;
+  background: transparent; cursor: help; }
+.tip-mark { display: grid; place-content: center; width: 18px; height: 18px; border: 1px solid var(--field-line);
+  border-radius: 50%; color: var(--muted); font: 600 12px/1 system-ui, sans-serif; }
+button.tip:hover .tip-mark, button.tip:focus-visible .tip-mark { color: var(--text); border-color: var(--text); }
+.tip-hold { white-space: nowrap; }
+/* A phone's tap target is 44px, around the same small mark, without making its line taller. */
+@media (max-width: 700px) {
+  button.tip { width: 44px; height: 44px; min-height: 44px; margin: -14px -12px -14px -10px; }
+}
+.tip-text { display: none; position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; width: max-content;
+  max-width: min(32ch, calc(100vw - 32px)); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--text); box-shadow: 0 4px 14px rgba(0,0,0,.3);
+  font: 400 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; text-align: left; white-space: normal; }
+button.tip:not(.hush):is(:hover, :focus) .tip-text { display: block; }
+.cmp th:last-child .tip-text { left: auto; right: 0; }
+.cmp-gloss { position: relative; }
+.cmp-gloss button.tip { position: static; }
+.cmp-gloss .tip-text { left: 0; right: 0; width: auto; max-width: none; }
 .in-use-by { white-space: nowrap; }
 .forge-route { display: inline-block; }
 /* On a phone the label of a row of page links sits level with the links, which are taller to
