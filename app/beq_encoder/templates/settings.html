@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Settings · BEQ Encoder{% endblock %}
+{% block body %}
+<h1>Settings</h1>
+{% if notice %}<p class="status">{{ notice }}</p>{% endif %}
+{% if rejected %}<p class="status warn" role="alert">That path was not scanned. {{ rejected.what }} <a href="#f-path">Correct the path under Scan one film or folder</a>.</p>{% endif %}
+<nav class="act-jump" aria-label="On this page">
+  <span class="muted">On this page</span>
+  <a href="#cutoff">Default low-end cutoff</a> <a href="#clips">BEQ clips</a> <a href="#scan">Library scanning</a>
+  <a href="#bass">Bass check</a> <a href="#catalogue">BEQ Catalogue</a> <a href="#status">System status</a> <a href="#logs">Logs</a>
+</nav>
+
+{# The one thing the user sets here, in a box of its own. Every part under it shows what the
+   app is doing, or starts its upkeep by hand, under a heading the links above name. The
+   cutoff is the control the add flow's Filter step has. #}
+{% set custom = cutoff not in ladder %}
+<section id="cutoff" class="setting">
+  <h2>Default low-end cutoff</h2>
+  <form method="post" action="/settings/cutoff" class="cutoff-form">
+    <label for="cutoff_hz"><b>Low-end cutoff</b></label>
+    <select name="cutoff_hz" id="cutoff_hz">
+      {% for hz in ladder %}<option value="{{ '%g'|format(hz) }}"{{ ' selected' if hz == cutoff }}>{{ hz|cutoff }}</option>{% endfor %}
+      <option value="custom"{{ ' selected' if custom }}>Custom…</option>
+    </select>
+    <span id="custom-wrap"{{ ' hidden' if not custom }}><input type="number" name="custom_hz" id="custom_hz" min="0.5" max="{{ '%g'|format(cutoff_max) }}" step="0.5" value="{{ '%g'|format(cutoff) if custom }}" aria-label="Custom cutoff in Hz"> Hz</span>
+    <button>Save</button>
+    <span class="small muted">Off, or up to {{ '%g'|format(cutoff_max) }} Hz</span>
+    {% if saved %}<span class="saved" role="status"><span class="badge ok" data-sym="✓">Saved</span> The default low-end cutoff is now {{ cutoff|cutoff }}.</span>{% endif %}
+  </form>
+  <p class="small muted">{{ TERMS.cutoff }} Off keeps all of the bass. Every new BEQ track starts with this cutoff, and you can change it for one track when you add it.</p>
+</section>
+
+<section id="clips">
+  <h2>BEQ clips</h2>
+  <dl class="kv sys">
+    <dt>Clip folder</dt><dd><span class="path">{{ clip_folder }}</span>{% if clip_problem %} <span class="bad">{{ clip_problem }}</span>{% endif %}</dd>
+  </dl>
+  <p class="small muted">The app saves every BEQ clip here. The folder is set in the app's configuration, as <code>CLIP_DIR</code>, and must be outside every library folder, or the scan would list each clip as a film.</p>
+</section>
+
+<section id="scan">
+  <h2>Library scanning</h2>
+  <dl class="kv sys">
+    <dt>Library folders</dt>
+    <dd>{% for r in roots %}<code>{{ r }}</code>{% if not loop.last %}, {% endif %}{% else %}<span class="bad">None set</span>{% endfor %}</dd>
+    <dt>Watching for new files</dt>
+    <dd>{% if lib.watch_error %}<span class="bad">Failed: {{ lib.watch_error }}</span>{% elif lib.watch == 'off' %}Off. The scheduled scan finds new files.{% else %}On. A new file shows in the Library once it has finished copying.{% endif %}</dd>
+    <dt>Last scan</dt>
+    <dd>{% if scan.running %}Running now: {{ scan.done }} of {{ scan.found }} files{% elif last_scan %}{{ last_scan|t }}{% else %}Not since BEQ Encoder started{% endif %}{% if scan.error %} <span class="bad">{{ scan.error }}</span>{% endif %}</dd>
+    <dt>Next scheduled scan</dt>
+    <dd>{% if next_scan %}{{ next_scan|t }}{% if S.scan_interval_hours %}, then every {{ '%g'|format(S.scan_interval_hours) }} hours{% endif %}{% elif lib.next_scan_at %}Due now{% else %}None scheduled{% endif %}</dd>
+  </dl>
+  {% if not lib.watch_error and lib.watch != 'off' %}<details class="tech small"><summary>Technical details</summary><p>Watching for new files: {{ lib.watch }}</p></details>{% endif %}
+  <h3>Scan by hand</h3>
+  <p class="small muted">The app scans by itself. Use these when a film is missing or shows the wrong audio tracks.</p>
+  <div class="actions"><form method="post" action="/scan" class="inline"><button class="ghost">Scan now</button></form>
+    <span class="small muted">Looks through the library folders for new and changed files.</span></div>
+  <form method="post" action="/media/add" class="lib-path">
+    <label for="f-path">Scan one film or folder</label>
+    <div class="lib-path-row">
+      <input id="f-path" type="text" name="path" required value="{{ rejected.typed if rejected }}"{% if rejected %} aria-invalid="true" aria-describedby="f-path-error" autofocus{% endif %}>
+      <button class="ghost">Scan</button>
+    </div>
+    {% if rejected %}<p class="bad" id="f-path-error">{{ rejected.what }} {{ rejected.cause }}</p>{% endif %}
+  </form>
+  <details class="lib-rare"><summary>Rescan every file</summary>
+    <form method="post" action="/scan" class="inline"><input type="hidden" name="full" value="on"><button class="ghost">Rescan every file</button></form>
+    <p class="small muted">Slow: reads every film file again, changed or not.</p>
+  </details>
+</section>
+
+{# The bass check gives each film its candidate rating. The counts use the Library's own
+   labels, so a film is found there by the same words. #}
+<section id="bass">
+  <h2>Bass check</h2>
+  <dl class="kv sys">
+    <dt>Now</dt><dd>{{ status_line }}</dd>
+    {% if unknown %}
+    <dt>Films it has not rated</dt>
+    <dd><ul class="counts">{% for note, n in unknown.most_common() %}<li>Unknown: {{ note }} · {{ n }} film{{ '' if n == 1 else 's' }}</li>{% endfor %}</ul>
+      <a href="/?rating=unknown">Show these films in the Library</a></dd>
+    {% endif %}
+  </dl>
+</section>
+
+<section id="catalogue">
+  <h2>BEQ Catalogue</h2>
+  <dl class="kv sys">
+    <dt>Filters</dt>
+    <dd>{% if cat.entries %}{{ cat.entries|length }} entries{% else %}<span class="bad">Not loaded</span>{% endif %}{% if cat.error %} <span class="bad">{{ cat.error }}</span>{% endif %}</dd>
+    {% if cat.entries %}<dt>Last downloaded</dt>
+    <dd>{{ catalogue_at|t }}. The app downloads it again once it is older than {{ '%g'|format(S.catalogue_max_age_days) }} day{{ '' if S.catalogue_max_age_days == 1 else 's' }}.</dd>{% endif %}
+  </dl>
+  <form method="post" action="/catalogue/refresh" class="inline"><button class="ghost">Refresh</button></form>
+</section>
+
+<section id="status">
+  <h2>System status</h2>
+  <dl class="kv sys">
+    {% set d = dee() %}
+    <dt>Encoder</dt>
+    <dd>{% if d.ok %}<span class="good">Ready</span>. It makes TrueHD Atmos and TrueHD tracks.{% else %}<span class="bad">No TrueHD: {{ d.problems|join(' · ') }}</span>{% if S.allow_test_formats %} (FLAC test output only){% endif %}{% endif %}</dd>
+    {% set ds = designer_status() %}
+    <dt>BEQ Forge</dt>
+    <dd>{% if ds.ok %}<span class="good">Available</span>{% if ds.designer_release %}, version {{ ds.designer_release }}{% endif %}{% else %}<span class="bad">{{ ds.problems|join(' · ') }}</span>{% endif %}</dd>
+    <dt>BEQ Encoder version</dt><dd>{{ version }}</dd>
+  </dl>
+</section>
+
+<section id="logs">
+  <h2>Logs</h2>
+  <p class="small muted">The log file of each recent piece of work, to download when something needs a closer look. <a href="/activity">Activity</a> lists the work itself, with the same log under each row's technical details.</p>
+  {% if logs %}
+  <details><summary>Logs of the last {{ logs|length }} pieces of work</summary>
+  <ul class="small">{% for w in logs %}<li><a href="{{ w.base }}/log" download="{{ w.ref }}.log">{{ w.what }}, {{ w.film }}</a> <span class="muted">{{ w.label }} · {{ w.when }}</span></li>{% endfor %}</ul>
+  </details>
+  {% else %}<p class="muted small">No logs yet.</p>{% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+// The cutoff menu's last entry, Custom, shows the box that takes any value.
+const menu = document.getElementById('cutoff_hz'), wrap = document.getElementById('custom-wrap');
+menu.addEventListener('change', () => {
+  wrap.hidden = menu.value !== 'custom';
+  if (!wrap.hidden) document.getElementById('custom_hz').focus();
+});
+</script>
+{% endblock %}

@@ -13,37 +13,60 @@
   <a class="brand" href="/"><img class="logo" src="/static/logo.svg" alt="" width="24" height="24">BEQ Encoder</a>
   <nav>
     {% set path = request.url.path %}
-    {% set tab = tab|default('jobs' if path.startswith('/jobs') else 'library' if path in ('/', '/scan') or path.startswith('/media') else '') %}
+    {% set tab = tab|default('activity' if path.startswith('/activity') else 'settings' if path.startswith('/settings') else 'library' if path == '/' or path.startswith('/films') else '') %}
+    {% set n = activity_counts() %}
     <a href="/"{% if tab == 'library' %} class="on" aria-current="page"{% endif %}>Library</a>
-    <a href="/jobs"{% if tab == 'jobs' %} class="on" aria-current="page"{% endif %}>Jobs <span id="active-count" class="pill" title="Jobs queued, running or ready for review" hidden></span></a>
+    <a href="/activity" id="nav-activity"{% if tab == 'activity' %} class="on" aria-current="page"{% endif %}>Activity<span id="activity-counts" class="count">{% if n.active %} · {{ n.active }}{% endif %}</span></a>
+    <a href="/activity#failed" id="nav-failed" class="nav-failed"{% if not n.failed %} hidden{% endif %}>{{ n.failed_said }}</a>
+    <a href="/settings" class="small{{ ' on' if tab == 'settings' }}"{% if tab == 'settings' %} aria-current="page"{% endif %}>Settings</a>
   </nav>
-  <span class="ver">v{{ version }}</span>
 </header>
 <main>
-{% set d = dee() %}{% if not d.ok %}<section class="status warn">DEE problem: {{ d.problems|join(' · ') }}</section>{% endif %}
-{% set ds = designer_status() %}{% if not ds.ok %}<section class="status warn">Automatic designer problem: {{ ds.problems|join(' · ') }}</section>{% endif %}
+{% set dee_now = dee() %}{% if not dee_now.ok %}<section class="status warn">DEE problem: {{ dee_now.problems|join(' · ') }}</section>{% endif %}
+{% set ds = designer_status() %}{% if not ds.ok %}<section class="status warn">BEQ Forge problem: {{ ds.problems|join(' · ') }}</section>{% endif %}
 {% block body %}{% endblock %}
 </main>
 <script>
-function setBadge(b, j) {
-  b.className = `badge s-${j.status}`;
-  b.dataset.sym = j.status_symbol;
-  b.textContent = j.status_label;
+function setProgress(root, a) {
+  const bar = root.querySelector('.meter');
+  if (bar) {
+    bar.classList.toggle('indet', a.progress == null);
+    bar.querySelector('i').style.width = `${a.progress ?? 100}%`;
+  }
+  const text = root.querySelector('.prog-label');
+  if (text) text.textContent = a.label;
 }
-function progHTML(j) {
-  if (j.status !== 'running') return j.stage_note ? `<span class="muted small">${j.stage_note}</span>` : '';
-  const p = j.percent == null ? null : Math.round(j.percent * 10) / 10;
-  return `<div class="meter ${p == null ? 'indet' : ''}"><i style="width:${p ?? 100}%"></i></div>`
-       + `<div class="small">${j.stage_label || ''}${p == null ? '' : ' · ' + p + '%'}</div>`;
+// Keep each activity's progress current, and reload once the set of activities changes.
+async function followActivity(url, refs) {
+  try {
+    const s = await (await fetch(url)).json();
+    const now = s.active.map(a => `${a.ref}:${a.status}`);
+    if (now.join() !== refs.join()) { location.reload(); return; }
+    for (const a of s.active) {
+      const el = document.getElementById(a.ref);
+      if (el) setProgress(el, a);
+    }
+  } catch (e) {}
+  setTimeout(() => followActivity(url, refs), 3000);
 }
 async function refreshActive() {
   try {
-    const r = await fetch('/api/jobs?active=1'); const j = await r.json();
-    const el = document.getElementById('active-count');
-    el.hidden = j.length === 0; el.textContent = `${j.length} active`;
+    const n = await (await fetch('/api/activity')).json();
+    document.getElementById('activity-counts').textContent = n.active ? ` · ${n.active}` : '';
+    const failed = document.getElementById('nav-failed');
+    failed.textContent = n.failed_said;
+    failed.hidden = !n.failed;
   } catch (e) {}
 }
 refreshActive(); setInterval(refreshActive, 5000);
+// A link to a collapsed part of a page, or to an entry inside one, opens it.
+function openTarget() {
+  const el = location.hash.length > 1 && document.getElementById(location.hash.slice(1));
+  const part = el && el.closest('details');
+  if (part) { part.open = true; el.scrollIntoView(); }
+}
+addEventListener('hashchange', openTarget);
+addEventListener('DOMContentLoaded', openTarget);
 </script>
 {% block scripts %}{% endblock %}
 </body>

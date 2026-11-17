@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% import "_work.html" as work %}
+{% import "_filters.html" as cmp %}
+{% block title %}{{ f.name }} · BEQ Encoder{% endblock %}
+{% block body %}
+<p class="crumb"><a href="{{ back[1] }}">{{ back[0] }}</a> / <span aria-current="page">{{ f.name }}</span></p>
+
+{# Each fact has one home on this page. The heading holds the rating with what the bass check
+   found in a few words, each BEQ track with its filter and what to do with the volume, and the
+   buttons, with the one way to get a filter when none is ready. The bass check's figures are
+   under Candidate rating, why the film has no filter is under Filters, and a file the app
+   can't read is explained here alone. #}
+{% set add = f.add %}
+{% set r = f.latest %}
+{% set readable = f.tracks|length > 0 %}
+<header class="film-head">
+  <h1>{{ f.name }}{% if f.edition %} <span class="tag">{{ f.edition }}</span>{% endif %}</h1>
+  <p class="rating">
+    <span class="small muted">Candidate rating</span>
+    <span class="badge r-{{ f.rating }}" data-sym="{{ RATING_SYMBOLS[f.rating] }}">{{ f.rating_label }}</span>
+    {% if f.rating_short %}<span class="rating-why">{{ f.rating_short }}.</span>{% endif %}
+    {% if f.tmdb_url %}<a href="{{ f.tmdb_url }}" rel="noopener">TMDB page</a>{% endif %}
+  </p>
+  {% if f.beq_tracks %}
+  <div class="has-beq"><span class="badge ok" data-sym="✓">{{ 'Has a BEQ track' if f.beq_tracks|length == 1 else 'Has ' ~ f.beq_tracks|length ~ ' BEQ tracks' }}</span>
+    <ul>{% for t in f.beq_tracks %}<li><a href="#track-{{ t.id }}">Track {{ t.id }}</a>{% if t.filter %}, made with {{ t.filter }}{% endif %}{% if t.cutoff and t.cutoff != 'Off' %} at a low-end cutoff of {{ t.cutoff }}{% endif %}. {{ t.volume }}</li>{% endfor %}</ul></div>
+  {% endif %}
+  {% if add.can %}
+  {% if gap[0] or add.why %}<p class="next-step">{{ gap[0] or add.why }}</p>{% endif %}
+  <p class="actions">
+    <a class="btn{{ '' if add.main else ' ghost' }}" href="/films/{{ f.id }}/add">Add BEQ track</a>
+    <a class="btn ghost" href="/films/{{ f.id }}/clip">Make a BEQ clip</a>
+  </p>
+  {% else %}
+  <p>{{ f.rating_why }}{% if readable %} Each track under <a href="#tracks">Audio tracks</a> says why it can't get one.{% elif f.problem and not f.no_audio %} Its audio tracks and filters show here once the app can read it.{% endif %}</p>
+  {% if f.problem %}
+  <div class="actions"><form method="post" action="/films/{{ f.id }}/rescan" class="inline"><button{% if f.fix %} class="ghost"{% endif %}>Rescan file</button></form>
+    <span class="small">Reads the file again. Use it once the file has changed.</span></div>
+  {% endif %}
+  {% endif %}
+  {% if readable %}
+  <nav class="act-jump" aria-label="On this page">
+    <span class="muted">On this page</span>
+    {% if f.activities %}<a href="#activity">In progress ({{ f.activities|length }})</a>{% endif %}
+    {% if r %}<a href="#result">{{ (r.what ~ ' failed') if r.failure else r.label }}</a>{% endif %}
+    <a href="#filters">Filters ({{ f.filters|length }})</a>
+    <a href="#tracks">Audio tracks ({{ f.tracks|length }})</a>
+    {% if add.can %}<a href="#rating">Candidate rating</a>{% endif %}
+    {% if f.history %}<a href="#history">History ({{ f.history|length }})</a>{% endif %}
+    <a href="#file">File</a>
+  </nav>
+  {% endif %}
+</header>
+
+{% if f.activities %}
+<section id="activity" class="film-part activity-panel" aria-live="polite">
+  <h2>In progress</h2>
+  {% for w in f.activities %}
+  <div class="work" id="{{ w.ref }}">
+    <div class="work-head"><b>{{ w.what }}</b> {{ work.badge(w) }}
+      <span class="small muted">{{ w.when }}</span>
+      <span class="work-cancel"><a class="small" href="/activity#{{ w.ref }}">View in Activity</a> {{ work.cancel(w) }}</span></div>
+    {{ work.progress(w) }}
+    {{ work.using(w) }}
+    <p class="small muted">{{ w.lands('this page') }}</p>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# The latest result has one place and one size, whatever it is: a headline, a sentence or
+   two, and links to where its facts live. #}
+{% if r %}
+<section id="result" class="film-part result-panel o-{{ r.tone }}">
+  <div id="{{ r.ref }}">
+  {% if r.failure %}
+    <h2>{{ r.what }} failed <span class="small muted">{{ r.when }}</span></h2>
+    <p>{{ r.failure.what }} {{ r.failure.kept }}</p>
+    {{ work.using(r) }}
+    {% if f.retrying %}<p class="small">{{ f.retrying.what }} again: {{ f.retrying.label|lower }}.</p>{% else %}{{ work.hint(r) }}<div class="actions">{{ work.fix(r, true) }}</div>{% endif %}
+    {{ work.technical(r) }}
+  {% elif r.kind == 'encode' %}
+    {% set t = f.made_by(r) %}
+    <h2>BEQ track added <span class="small muted">{{ r.when }}</span></h2>
+    <p>{% if t %}The new track is <a href="#track-{{ t.id }}">Track {{ t.id }}</a>. {{ r.hear }}{% else %}{{ r.result }}{% endif %} <a href="/">Back to the Library</a></p>
+    {% if r.charts %}<div class="charts thumbs">{% for kind, href in r.charts.items() %}<a href="{{ href }}"><img src="{{ href }}" alt="{{ 'Bass spectrum' if kind == 'spectrum' else 'Bass over the running time' }}, before and after" loading="lazy"></a>{% endfor %}</div>{% endif %}
+    {% if r.figures %}<dl class="small using">{% for k, v in r.figures %}<div><dt>{{ k }}</dt><dd>{{ v }}</dd></div>{% endfor %}</dl>{% endif %}
+  {% elif r.kind == 'clip' %}
+    <h2>BEQ clip made <span class="small muted">{{ r.when }}</span></h2>
+    <p><span class="path">{{ r.clip_file }}</span> is in <span class="path">{{ r.clip_folder }}</span>. <a href="/clips/{{ r.id }}/file" download>Download the BEQ clip</a>. The film file was not changed.</p>
+    <p class="small clip-tracks"><span>Its audio tracks, in order</span> <span><b>1st</b> the original track</span>{% for e in r.filters %}{% set x = f.filter(e.digest) %} <span><b>{{ (loop.index + 1)|ordinal }}</b> {% if x %}{{ x.name }} (<a href="#filter-{{ numbers[x.digest] }}">filter {{ numbers[x.digest] }} under Filters</a>){% else %}{{ e.author }}{% endif %}</span>{% endfor %}</p>
+    <p class="small">Switch audio tracks in your player to compare, then add the filter you prefer from its row under Filters.</p>
+  {% else %}
+    <h2>{{ r.label }} <span class="small muted">{{ r.when }}</span></h2>
+    <p>{{ r.result }}{% if r.outcome == 'designed' and add.can %} <a href="/films/{{ f.id }}/add?step=filter">Choose one to add a BEQ track</a>.{% endif %}</p>
+  {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if readable %}
+<section id="filters" class="film-part">
+  <h2>Filters ({{ f.filters|length }})</h2>
+  {% if not f.filters %}
+  <p>{{ gap[1] or 'None.' }}</p>
+  {% else %}
+  <p class="small muted">Each figure is at your default low-end cutoff ({{ cutoff|cutoff }}){% if track and (groups[0].made_for or not groups[0].heading) %}, for {{ track.name }}{% endif %}.{% if measures_next %} {{ measures_next }}{% endif %}</p>
+  {{ cmp.notes(forge) }}
+  {% set marks = f.clip_marks %}
+  {% for g in groups %}{% set group = g.filters %}
+  {# The filters made for another track or mix fold away, as in the add flow, unless one is
+     in use or in the BEQ clip, or the film has no other. #}
+  {% set folds = g.made_for and not loop.first %}
+  {% if folds %}<details class="more other-filters"{{ ' open' if group|selectattr('in_use')|list or group|map(attribute='digest')|select('in', marks)|list }}>
+    <summary><h3 class="filter-group inline">{{ g.heading }} ({{ group|length }})</h3></summary>
+    <p class="small muted">{{ g.note }}</p>
+  {% elif g.heading %}<h3 class="filter-group">{{ g.heading }} ({{ group|length }})</h3>{% if g.note %}<p class="small muted">{{ g.note }}</p>{% endif %}{% endif %}
+  <div class="compare">
+    <table class="cmp">
+      {{ cmp.head(forge=forge) }}
+      {% for x in group %}
+      {% set older = f.filters|selectattr('newer', 'equalto', x.digest)|first %}
+      {% set addable = add.can and x.bands and not x.gone and not x.in_use %}
+      {# One line of facts to compare, then one line of what to do with the filter. #}
+      <tbody class="filter{{ ' in-use' if x.in_use }}" id="filter-{{ numbers[x.digest] }}">
+      <tr>
+        <td class="cmp-name">{{ cmp.name(x, numbers[x.digest]) }}{% if x.in_use %} <span class="small">{% for u in x.uses %}<span class="in-use-by">{{ 'by' if loop.first }} <a href="#track-{{ u.track_id }}">Track {{ u.track_id }}</a></span>{% if u.cutoff_hz != cutoff %} at a low-end cutoff of {{ u.cutoff_hz|cutoff }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}{% for l in x.labels if l != x.gone %} <span class="tag">{{ l }}</span>{% endfor %}{% if older %} <span class="tag">Newer revision of filter {{ numbers[older.digest] }}</span>{% endif %}{% if x.digest in marks %} <span class="tag">{{ marks[x.digest]|ordinal }} audio track in the BEQ clip{% if r.cutoff_hz != cutoff %}, at a low-end cutoff of {{ r.cutoff_hz|cutoff }}{% endif %}</span>{% endif %}
+          {{ cmp.about(x, g.made_for, same) }}</td>
+        <td data-label="Bass restored"><span class="v">{{ bass[x.digest] or '—' }}</span></td>
+        <td data-label="Level change"><span class="v">{{ cmp.level(levels[x.digest][0]) }}{% if levels[x.digest][1] %} <span class="small muted">{{ levels[x.digest][1] }}</span>{% endif %}</span></td>
+        {% if forge %}<td data-label="BEQ Forge's confidence"><span class="v">{{ x.sure or '—' }}</span></td>{% endif %}
+      </tr>
+      <tr class="cmp-do">
+        <td colspan="{{ 3 + (1 if forge else 0) }}">
+          {% if x.gone %}<div class="small">{{ x.gone_why }}{% if x.newer %} Its newer revision is <a href="#filter-{{ numbers[x.newer] }}">filter {{ numbers[x.newer] }}</a>.{% endif %}</div>{% endif %}
+          {% if older and addable %}<div class="small">By default the new BEQ track replaces {% for u in older.uses %}<a href="#track-{{ u.track_id }}">Track {{ u.track_id }}</a>{{ ' and ' if not loop.last }}{% endfor %}, made from the earlier revision. You can keep both in the last step.</div>{% endif %}
+          <div class="cmp-more small">
+            {% if addable %}<span{% if x.digest in marks %} class="clip-adds"{% endif %}><a class="btn ghost small" href="{{ f.add_href(x) }}">Add BEQ track with this filter</a></span>{% endif %}
+            {% if x.url %}<a href="{{ x.url }}" rel="noopener">BEQ Catalogue page</a>{% endif %}
+            {% if x.details %}<details class="tech"><summary>Technical details</summary><dl class="kv">{% for k, v in x.details %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl></details>{% endif %}</div>
+        </td>
+      </tr>
+      </tbody>
+      {% endfor %}
+    </table>
+    <div class="filter-curve">{{ g.chart|safe }}</div>
+  </div>
+  {% if folds %}</details>{% endif %}
+  {% endfor %}
+  {% endif %}
+</section>
+
+{# Every track reads in the same columns: its number and format, its language, what it is,
+   and its BEQ track. For a BEQ track the last column holds the track's own facts. #}
+<section id="tracks" class="film-part">
+  <h2>Audio tracks ({{ f.tracks|length }})</h2>
+  <table class="tracks">
+    <thead><tr><th scope="col">Track</th><th scope="col">Language</th><th scope="col">Notes</th><th scope="col">BEQ track</th></tr></thead>
+    <tbody>
+    {% for t in f.tracks %}
+    <tr id="track-{{ t.id }}"{% if t.beq %} class="is-beq"{% endif %}>
+      <td class="trk"><b>Track {{ t.id }}</b> · {{ t.fmt }}</td>
+      <td data-label="Language"><span class="v">{{ t.lang or 'Not given' }}</span></td>
+      <td data-label="Notes"><span class="v">{% if t.beq %}<span class="tag">BEQ track</span>{% for n in t.notes %} <span class="tag">{{ n }}</span>{% endfor %}{% elif t.default %}<span class="tag">{{ RECOMMENDED }}{{ BEST_LOSSY if t.lossy }}</span>{% elif t.lossy %}<span class="tag">Lossy</span>{% elif t.extra %}<span class="tag">Commentary or description</span>{% else %}{{ dash }}{% endif %}</span></td>
+      <td data-label="BEQ track"><div class="v">
+      {% if t.beq %}
+        Made from {% if t.source_id is not none %}<a href="#track-{{ t.source_id }}">Track {{ t.source_id }}</a>{% else %}{{ t.source or 'a track that is not recorded' }}{% endif %}
+        with {% if t.digest in numbers %}<a href="#filter-{{ numbers[t.digest] }}">{{ t.filter }}</a>{% else %}{{ t.filter or 'a filter that is not recorded' }}{% endif %}{% if t.cutoff and t.cutoff != 'Off' %} at a low-end cutoff of {{ t.cutoff }}{% endif %}.{% if t.level %} Level change {{ t.level }}.{% endif %}
+        <details class="small"><summary>Charts and details</summary>
+          {% if t.made %}<p>Added {{ t.made.finished_at|t }}.</p>{% endif %}
+          {% if t.made and t.made.charts %}<div class="charts">{% for kind, href in t.made.charts.items() %}<a href="{{ href }}"><img src="{{ href }}" alt="{{ kind }} chart, before and after" loading="lazy"></a>{% endfor %}</div>{% endif %}
+          <p>Name in the file: <span class="path">{{ t.file_name }}</span></p>
+        </details>
+      {% elif t.can %}
+        {% if t.beqs %}{% for id in t.beqs %}<a href="#track-{{ id }}">Track {{ id }}</a>{{ ' and ' if loop.revindex == 2 else ', ' if not loop.last }}{% endfor %} {{ 'was' if t.beqs|length == 1 else 'were' }} made from it{% else %}Would be {{ t.gets }}{% endif %}
+      {% else %}
+        <span class="muted">Can't get one. {{ t.why_not }}</span>
+      {% endif %}
+      </div></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if f.tracks|selectattr('lossy')|list %}<p class="small muted">{{ TERMS.lossy }}</p>{% endif %}
+</section>
+{% endif %}
+
+{% if add.can %}
+<details id="rating" class="film-part">
+  <summary><h2 class="inline">Candidate rating</h2></summary>
+  <p class="small muted">{{ TERMS.rating }}.{% if f.rating_aside %} {{ f.rating_aside }}{% endif %}</p>
+  <dl class="kv">{% for k, v in f.rating_rows %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
+</details>
+{% endif %}
+
+{% if f.history %}
+<section id="history" class="film-part">
+  <h2>History</h2>
+  {# A BEQ track's facts live with the track under Audio tracks, so its entry points there. #}
+  {% macro entry(w) %}
+  {% set made = f.made_by(w) %}
+  <li id="{{ w.ref }}"><b>{{ w.what }}</b> {{ work.badge(w) }} <span class="muted small">{{ w.when }}</span>
+    <p class="small">{% if made %}It added <a href="#track-{{ made.id }}">Track {{ made.id }}</a>.{% else %}{{ w.result }}{% endif %}</p>
+    {{ work.technical(w, true) }}
+  </li>
+  {% endmacro %}
+  <ul class="history">{% for w in f.history[:3] %}{{ entry(w) }}{% endfor %}</ul>
+  {% if f.history|length > 3 %}
+  <details><summary>{{ f.history|length - 3 }} older</summary><ul class="history">{% for w in f.history[3:] %}{{ entry(w) }}{% endfor %}</ul></details>
+  {% endif %}
+</section>
+{% endif %}
+
+<details id="file" class="film-part"{{ ' open' if f.problem }}>
+  <summary><h2 class="inline">File</h2></summary>
+  <p class="path whole">{{ f.path }}</p>
+  {% if f.scanned_at %}<p class="small">Last scanned {{ f.scanned_at|t }}.</p>{% endif %}
+  {% if f.problem %}<details class="tech small"><summary>Technical details</summary><p>The scan's message: <span class="path">{{ f.problem }}</span></p></details>
+  {% else %}<form method="post" action="/films/{{ f.id }}/rescan" class="inline"><button class="ghost small">Rescan file</button></form>{% endif %}
+</details>
+{% endblock %}
+{% block scripts %}
+{% if f.activities %}<script>{% set live = [] %}{% for w in f.activities %}{% set _ = live.append(w.ref ~ ':' ~ w.status) %}{% endfor %}followActivity('/api/films/{{ f.id }}/activity', {{ live|tojson }});</script>{% endif %}
+{% endblock %}

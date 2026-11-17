@@ -1,0 +1,55 @@
+{# One piece of slow work, as the film detail page, the Library and the Activity log show it. #}
+{% macro badge(w) -%}
+<span class="badge o-{{ w.tone }}" data-sym="{{ w.symbol }}">{{ w.label }}</span>
+{%- endmacro %}
+
+{# What stands under the badge of queued or running work: Work.status_line, which the live refresh writes too. #}
+{% macro progress(w) -%}
+{% if w.status == 'running' %}
+<div class="meter{{ ' indet' if w.progress is none }}"><i style="width:{{ w.progress|round(1) if w.progress is not none else 100 }}%"></i></div>
+{% endif %}
+{% if w.status_line %}<p class="small prog-label">{{ w.status_line }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro cancel(w, label='Cancel') -%}
+<form method="post" action="/work/{{ w.ref }}/cancel" class="inline"><button class="ghost small">{{ label }}</button></form>
+{%- endmacro %}
+
+{# The track, the filter and the low-end cutoff it was started with, each under its own name. #}
+{% macro using(w) -%}
+{% if w.using %}<dl class="small using">{% for k, v in w.using %}<div><dt>{{ k }}</dt><dd>{{ v }}</dd></div>{% endfor %}</dl>{% endif %}
+{%- endmacro %}
+
+{# A failure's fix, under the choices it reuses, with what it does again. `lead`: it is the page's one primary button. #}
+{% macro fix(w, lead=false) -%}
+{% if w.failure and w.failure.fix == 'retry' %}
+<form method="post" action="/work/{{ w.ref }}/retry" class="inline"><button{% if not lead %} class="ghost"{% endif %}>{{ FIXES.retry }}</button></form>
+<span class="small">Starts {{ w.what[:1]|lower }}{{ w.what[1:] }} again{% if w.reuses %}, with {{ w.reuses }}{% endif %}. Nothing else changes.</span>
+{% elif w.failure and w.failure.fix == 'rescan' and w.media_id %}
+<form method="post" action="/films/{{ w.media_id }}/rescan" class="inline"><button{% if not lead %} class="ghost"{% endif %}>{{ FIXES.rescan }}</button></form>
+<span class="small">Reads the film's file again.</span>
+{% endif %}
+{%- endmacro %}
+
+{# Whether trying again can help, and what to do when the fix fails too. Advice to change
+   something links to where it changes. #}
+{% macro hint(w) -%}
+{% set a = w.failure.advice if w.failure else none %}
+{% if w.failure and (w.failure.again or a) %}<p class="small">{{ w.failure.again }}{% if a %} {{ a[0] }}{% if a[2] %}<a href="{{ a[2] }}">{{ a[1] }}</a>{% endif %}{{ a[3] }}{% endif %}</p>{% endif %}
+{%- endmacro %}
+
+{# `used`: the choices it was started with show here, where its row does not show them. #}
+{% macro technical(w, used=false) -%}
+<details class="tech small">
+  <summary>Technical details</summary>
+  <dl class="kv">
+    {% if used %}{% for k, v in w.using %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}{% endif %}
+    <dt>Job</dt><dd>{{ 'Clip' if w.kind == 'clip' else 'Job' }} #{{ w.id }}</dd>
+    {% if w.stage %}<dt>Step</dt><dd>{{ w.stage }}{% if w.progress is none %} (its share of the whole is not known){% endif %}</dd>{% endif %}
+    {% if w.took %}<dt>Took</dt><dd>{{ w.took }}</dd>{% endif %}
+    {% if w.track_name %}<dt>Name in the file</dt><dd class="path">{{ w.track_name }}</dd>{% endif %}
+    {% if w.failure %}<dt>Message</dt><dd class="path">{{ w.failure.raw }}</dd>{% endif %}
+  </dl>
+  {% if w.has_log %}<p><a href="{{ w.base }}/log" download="{{ w.ref }}.log">Download the log</a></p>{% endif %}
+</details>
+{%- endmacro %}

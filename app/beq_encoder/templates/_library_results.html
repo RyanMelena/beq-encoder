@@ -1,0 +1,77 @@
+{% import "_work.html" as work %}
+<p class="lib-active{{ '' if view.narrowed else ' plain' }}" id="active">{{ view.words|join(' · ') }}.{% if view.narrowed %} <a href="/?clear=1">Clear</a>{% endif %}</p>
+
+{% if not rows %}
+<p class="empty">{% if count %}No film matches {% if view.q %}“{{ view.q }}”{% if view.chosen %} and the choices above{% endif %}{% else %}the choices above{% endif %}. <a href="/?clear=1">Clear</a> to see every film.{% else %}No films yet. The app scans the library folders by itself. The <a href="/settings#scan">Settings page</a> shows the folders and the last scan.{% endif %}</p>
+{% else %}
+<form method="get" action="/" class="sort-select" aria-label="Sort">
+  {% for k, xs in view.chosen.items() %}{% for x in xs %}<input type="hidden" name="{{ k }}" value="{{ x }}">{% endfor %}{% endfor %}
+  {% if view.q %}<input type="hidden" name="q" value="{{ view.q }}">{% endif %}
+  {% if view.per != 50 %}<input type="hidden" name="per" value="{{ view.per }}">{% endif %}
+  <label for="sort-by">Sort by</label>
+  <select name="sort" id="sort-by" data-submit>{% for key, s in sorts.items() %}<option value="{{ key }}"{{ ' selected' if key == view.sort }}>{{ s[0] }}</option>{% endfor %}</select>
+  <a class="btn ghost small" href="/?{{ view.query(desc=not view.desc) }}">{{ view.direction }}</a>
+  <noscript><button class="ghost small">Sort</button></noscript>
+</form>
+
+{% set tickable = rows|selectattr('can_add')|list %}
+{% if tickable %}
+<div class="bulk bulk-top">
+  <p><button class="ghost" id="bulk-add" form="bulk" disabled>Add BEQ track to selected</button>
+    <span class="small" id="bulk-count"></span>
+    <span class="small muted" id="bulk-note">Tick films to add a BEQ track to each, from its recommended track and first filter, at your default low-end cutoff.</span></p>
+  <ul class="small" id="bulk-plan" aria-live="polite"></ul>
+</div>
+{% endif %}
+<form method="post" action="/library/add" id="bulk">
+<input type="hidden" name="back" value="{{ view.query() }}">
+<table class="lib-table">
+  <thead><tr>
+    <th scope="col" class="pick">{% if tickable %}<input type="checkbox" id="pick-all" aria-label="Select every film on this page that can be ticked">{% endif %}</th>
+    {% for key, s in sorts.items() %}
+    {% set on = view.sort == key %}
+    <th scope="col"{% if key in ('filters', 'beq') %} class="num"{% endif %}{% if on %} aria-sort="{{ 'descending' if view.desc else 'ascending' }}"{% endif %}>
+      <a href="/?{{ view.query(sort=key, desc=(on and not view.desc)) }}" title="Sort by {{ s[0]|lower }}">{{ s[0] }} <span class="sort-mark{{ ' on' if on }}" aria-hidden="true">{{ ('↓' if view.desc else '↑') if on else '↕' }}</span></a></th>
+    {% endfor %}
+    <th scope="col">Next step</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td class="pick">{% if r.can_add %}<input type="checkbox" name="film" value="{{ r.id }}" aria-label="Select {{ r.name }}">{% endif %}</td>
+    <td class="film"><a href="/films/{{ r.id }}">{{ r.name }}</a>{% if r.edition %} <span class="tag">{{ r.edition }}</span>{% endif %}
+      {% if r.file %}<div class="lib-path" title="{{ r.path }}">{{ r.file }}</div>{% endif %}</td>
+    <td data-label="Candidate rating"><span class="v"><span class="badge r-{{ r.rating_key }}" data-sym="{{ RATING_SYMBOLS[r.rating_key] }}">{{ r.rating_label }}</span>{% if r.rating_note %} <span class="small muted rating-note">{{ r.rating_note }}</span>{% endif %}</span></td>
+    <td class="num{{ ' nil' if not r.filter_count }}" data-label="BEQ filters"><span class="v">{% if r.filter_count %}<a href="/films/{{ r.id }}#filters" title="See the filters of {{ r.name }}" aria-label="{{ r.filter_count }} BEQ filter{{ 's' if r.filter_count != 1 }} of {{ r.name }}">{{ r.filter_count }}</a>{% else %}0{% endif %}</span></td>
+    <td class="num{{ ' nil' if not r.beq_count }}" data-label="BEQ tracks"><span class="v">{% if r.beq_count %}<a href="/films/{{ r.id }}#tracks" title="See the BEQ tracks of {{ r.name }}" aria-label="{{ r.beq_count }} BEQ track{{ 's' if r.beq_count != 1 }} of {{ r.name }}">{{ r.beq_count }}</a>{% else %}0{% endif %}</span></td>
+    <td{{ ' class="nil"'|safe if not r.activity }} data-label="Activity"><div class="v">
+      {% set a = r.activity %}
+      {% if a.work %}<div id="{{ a.work.ref }}"><a href="/activity#{{ a.work.ref }}" title="Show it in the Activity log">{{ a.text }}</a> {{ work.badge(a.work) }}{{ work.progress(a.work) }}</div>{% endif %}
+      {% if a.failed %}<div class="row-failed"><a href="/films/{{ r.id }}#result">{{ a.failed_text }}</a> {{ work.badge(a.failed) }}
+      <div class="small">{{ a.cause }}</div></div>{% endif %}
+      {% if not a %}{{ dash }}{% endif %}
+    </div></td>
+    <td class="row-act" data-label="Next step"><span class="v">{% if r.next.post %}<button class="ghost small" formmethod="post" formaction="{{ r.next.to }}" aria-label="{{ r.next.say }}: {{ r.name }}">{{ r.next.say }}</button>{% elif r.next.to %}<a href="{{ r.next.to }}">{{ r.next.say }}</a>{% else %}<span class="small muted">{{ r.next.say }}</span>{% endif %}</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</form>
+<div class="lib-foot">
+  <nav class="pager" aria-label="Pages">
+    <form method="get" action="/" class="inline">
+      {% for k, xs in view.chosen.items() %}{% for x in xs %}<input type="hidden" name="{{ k }}" value="{{ x }}">{% endfor %}{% endfor %}
+      {% if view.q %}<input type="hidden" name="q" value="{{ view.q }}">{% endif %}
+      {% if view.sort != 'title' %}<input type="hidden" name="sort" value="{{ view.sort }}">{% endif %}
+      {% if view.desc %}<input type="hidden" name="dir" value="desc">{% endif %}
+      <label for="per">Rows per page</label>
+      <select name="per" id="per" data-submit>{% for n in page_sizes %}<option{{ ' selected' if n == view.per }}>{{ n }}</option>{% endfor %}</select>
+      <noscript><button class="ghost small">Show</button></noscript>
+    </form>
+    <span>{{ first_row }}–{{ last_row }} of {{ total }}</span>
+    {% set q = view.query() %}
+    {% if page > 1 %}<a href="/?{{ q }}{{ '&' if q }}page=1" aria-label="First page">«</a> <a href="/?{{ q }}{{ '&' if q }}page={{ page - 1 }}" aria-label="Previous page">‹</a>{% endif %}
+    {% if page < pages %}<a href="/?{{ q }}{{ '&' if q }}page={{ page + 1 }}" aria-label="Next page">›</a> <a href="/?{{ q }}{{ '&' if q }}page={{ pages }}" aria-label="Last page">»</a>{% endif %}
+  </nav>
+</div>
+{% endif %}

@@ -163,6 +163,7 @@ class ChartInfo:
     beq_source: str                   # "BEQ Catalogue · aron7awol" / "beqforge 0.3.3 · flatten"
     filters: list[dict]               # catalogue-style filter dicts
     gain_db: float = 0.0              # uniform level gain baked into the BEQ track
+    highpass_hz: float = 0.0          # the high-pass floor after the filters; 0: none
     peak_in_dbfs: float | None = None
     peak_out_dbfs: float | None = None
     mv_db: float | None = None        # catalogue's master-volume advice, if any
@@ -291,6 +292,8 @@ def _facts(info: ChartInfo) -> list[tuple[str, str]]:
     b = _boost(info.filters)
     if b is not None:
         facts.append(("Largest BEQ change", f"{_fmt_db(b[0])} at {b[1]:.0f} Hz"))
+    if info.highpass_hz:
+        facts.append(("High-pass floor", _highpass_words(info.highpass_hz)))
     facts += [("Source track", info.source_track),
               ("Level gain", (_fmt_db(info.gain_db) + "  (whole track, all channels)")
                if abs(info.gain_db) >= 0.005 else "none needed")]
@@ -461,19 +464,26 @@ def render_heatmap(before: Measurement, after: Measurement, info: ChartInfo,
         f"Signal: {MONO_NOTE}. Each column is the loudest 2 s window (0.49 Hz resolution) in "
         f"{dur / max(1, before.heat_db.shape[1]):.1f} s of the film; colours fixed at "
         f"{vmin:.0f} to {vmax:.0f} dBFS for every film.",
-        f"BEQ: {_filter_summary(info.filters)}"
+        f"BEQ: {_filter_summary(info.filters, info.highpass_hz)}"
         + (f"; its {_fmt_db(info.gain_db)} level gain taken back out"
            if abs(info.gain_db) >= 0.005 else "") + f". Source: {info.source_track}.",
     ])
     fig.savefig(out, dpi=dpi, format="png")
 
 
-def _filter_summary(filters: list[dict]) -> str:
+def _highpass_words(hz: float) -> str:
+    from .biquad import HIGHPASS_ORDER
+
+    return f"{hz:g} Hz, Butterworth, order {HIGHPASS_ORDER} ({6 * HIGHPASS_ORDER} dB/octave)"
+
+
+def _filter_summary(filters: list[dict], highpass_hz: float = 0.0) -> str:
     rows = _filter_rows(filters)
+    floor = f"; high-pass floor {_highpass_words(highpass_hz)}" if highpass_hz else ""
     if not rows:
-        return "no filters"
+        return "no filters" + floor
     return ", ".join(f"{t.lower()} {fr} {g}{' Q' + q if q else ''}{' ' + n if n else ''}"
-                     for t, fr, g, q, n in rows)
+                     for t, fr, g, q, n in rows) + floor
 
 
 def _time_ticks(dur: float) -> list[float]:

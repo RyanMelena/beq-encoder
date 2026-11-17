@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from pathlib import Path
 
+from .biquad import check_highpass
 from .dee import SHIM_DEFAULT, Dee
 from .support import CAVERN_DUMP_DEFAULT
 
@@ -35,6 +36,8 @@ class Settings:
     mkvextract: str = "mkvextract"
     cavern_dump: str = CAVERN_DUMP_DEFAULT  # DD+ Atmos objects (Dockerfile)
     charts: bool = True  # before/after charts + report for every BEQ track
+    clip_dir: Path = Path("/work/clips")  # clips: an excerpt with BEQ tracks, never the source
+    clip_seconds: float = 30.0            # a clip's length unless the person sets one
     scan_on_start: bool = True
     scan_workers: int = 4               # files probed at once during a scan
     scan_interval_hours: float = 24.0   # 0 = no scheduled scans
@@ -50,10 +53,11 @@ class Settings:
     default_format: str = "truehd"  # the only production output (Atmos or channel-based)
     allow_test_formats: bool = False  # offer FLAC (not a bitstream) for PCM routes: tests only
     default_target_peak_dbfs: float = -1.0
+    highpass_hz: float = 0.0  # the high-pass floor a job starts with (biquad); 0 = none
     keep_work: bool = False
     beq_default_flag: bool = False
     # the gain first: a player that cuts a long name short (Kodi) still shows it
-    track_name_template: str = "BEQ [{gain}] {codec} ({source})"
+    track_name_template: str = "BEQ [{gain}] {codec}"
     designer_url: str = "http://beqforge-designer:8420"
     designer_timeout: float = 1800.0
     analysis_cache_gb: float = 20.0
@@ -81,10 +85,14 @@ class Settings:
         return self.config_dir / "charts"
 
 
+CLIP_SECONDS_RANGE = (5.0, 600.0)  # the shortest clip worth hearing; ten minutes of work
+
+
 def _check_track_name_template(template: str) -> None:
     """A bad placeholder should stop the service here, not a job hours in."""
     try:
-        template.format(orig="", codec="", bitrate="", author="", source="", gain="")
+        template.format(orig="", codec="", bitrate="", author="", source="", gain="",
+                        highpass="")
     except (IndexError, KeyError, ValueError) as exc:
         raise ValueError(f"TRACK_NAME_TEMPLATE {template!r} is not valid: {exc!r}") from exc
 
@@ -107,6 +115,9 @@ def load() -> Settings:
     s.mkvextract = os.environ.get("MKVEXTRACT_PATH", "mkvextract")
     s.cavern_dump = os.environ.get("CAVERN_DUMP", s.cavern_dump)
     s.charts = _flag("BEQ_CHARTS", True)
+    s.clip_dir = Path(os.environ.get("CLIP_DIR") or s.work_dir / "clips")
+    s.clip_seconds = min(CLIP_SECONDS_RANGE[1], max(CLIP_SECONDS_RANGE[0], float(
+        os.environ.get("CLIP_SECONDS") or s.clip_seconds)))
     s.scan_on_start = _flag("SCAN_ON_START", True)
     s.scan_workers = max(1, int(os.environ.get("SCAN_WORKERS", "4")))
     s.scan_interval_hours = float(os.environ.get("SCAN_INTERVAL_HOURS", "24"))
@@ -122,6 +133,10 @@ def load() -> Settings:
     s.default_format = os.environ.get("DEFAULT_FORMAT", "truehd")
     s.allow_test_formats = _flag("ALLOW_TEST_FORMATS", False)
     s.default_target_peak_dbfs = float(os.environ.get("TARGET_PEAK_DBFS", "-1.0"))
+    try:  # a bad floor should stop the service here, not shape every track it makes
+        s.highpass_hz = check_highpass(os.environ.get("BEQ_HIGHPASS_HZ") or 0.0)
+    except ValueError as exc:
+        raise ValueError(f"BEQ_HIGHPASS_HZ: {exc}") from None
     s.keep_work = _flag("KEEP_WORK", False)
     s.beq_default_flag = _flag("BEQ_TRACK_DEFAULT", False)
     s.track_name_template = os.environ.get("TRACK_NAME_TEMPLATE", s.track_name_template)

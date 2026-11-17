@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 
 from .. import media, pcmio
@@ -23,6 +24,7 @@ _FRAMES_TAG = "tag_number_of_frames"
 _GUI_PROGRESS_RE = re.compile(r"#GUI#progress\s+(\d+)%")
 _OUT_TIME_RE = re.compile(r"out_time_us=(\d+)")
 _PROGRESS_KV_RE = re.compile(r"^\s*\w+=\s*\S*\s*$")  # ffmpeg -progress key=value lines
+_TIMEBASE_RE = re.compile(r"#tb 0: (\d+)/(\d+)")  # a framecrc listing's time base
 
 
 def gui_progress(line: str) -> float | None:
@@ -61,6 +63,13 @@ class SourceTracks:
         self._job = job
         self._tagged = [frames_tag(t) for t in ident["tracks"]]
         self._counted: list[int] | None = None
+        self.timestamps: dict[int, Path] = {}  # TrueHD track id: its own timestamps (read_track)
+
+    def truehd(self) -> list[tuple[int, int]]:
+        """(track id, ffmpeg's 0:a:N index) of every TrueHD track."""
+        audio = [t for t in self.ident["tracks"] if t["type"] == "audio"]
+        return [(t["id"], n) for n, t in enumerate(audio)
+                if t.get("properties", {}).get("codec_id") == "A_TRUEHD"]
 
     def position(self, track_id: int) -> int:
         return next(i for i, t in enumerate(self.ident["tracks"]) if t["id"] == track_id)
@@ -88,12 +97,14 @@ def read_track(job: Job, track: media.AudioTrack, rate: int, duration: float | N
     check compares against this copy, so a copy that stopped early would pass them all
     (ffmpeg exits 0 after a read error, with what it had). A timeline with no start cannot
     place the track on the film, so nothing is encoded from one."""
-    local = _extract_track(job, track, duration)
+    local, listings = _extract_track(job, track, duration, source.truehd())
     held = count_packets(job, local)[0]
     whole = source.frames(source.position(track.track_id), held)
     if held != whole:
         raise JobFailed(f"The copy of the {track.kind_name} track holds {held} of its {whole} "
                         f"frames: reading {job.src.name} stopped early, so it was left alone")
+    source.timestamps = {tid: _timestamps_v2(source, tid, listing)
+                         for tid, listing in listings.items()}
     timeline = _map_timeline(job, local, track, rate, duration)
     if not timeline.frames or timeline.first_pts is None:
         raise JobFailed(f"Could not map the {track.kind_name} track's timeline (ffprobe listed "
@@ -102,12 +113,17 @@ def read_track(job: Job, track: media.AudioTrack, rate: int, duration: float | N
     return LocalTrack(local, timeline)
 
 
-def _extract_track(job: Job, track: media.AudioTrack, duration: float | None) -> Path:
+def _extract_track(job: Job, track: media.AudioTrack, duration: float | None,
+                   truehd: list[tuple[int, int]]) -> tuple[Path, dict[int, Path]]:
     """Copy just this track to the work dir, so every later pass reads a small local
     file rather than the MKV over the network. -copyts keeps the source's own timestamps:
     by default ffmpeg subtracts the file's start time, which another track may set, and
-    the track's place on the film's timeline is read from these."""
+    the track's place on the film's timeline is read from these. The same read lists the
+    packets of every TrueHD track in `truehd`, for the remux to keep their timestamps."""
     out = job.work / "source.mka"
+    listings = {tid: job.work / f"timestamps-{tid}.crc" for tid, _ in truehd}
+    lists = [a for tid, n in truehd
+             for a in ("-map", f"0:a:{n}", "-c", "copy", "-f", "framecrc", str(listings[tid]))]
     stage = f"Reading the {track.kind_name} track"
     job.progress(stage, 0)
 
@@ -119,10 +135,38 @@ def _extract_track(job: Job, track: media.AudioTrack, duration: float | None) ->
     job.procs.run([job.s.ffmpeg, "-nostdin", "-v", "error", "-y", "-progress", "pipe:1",
                    "-nostats", "-copyts", "-i", str(job.src),
                    "-map", f"0:a:{track.audio_index}",
-                   "-c", "copy", "-f", "matroska", str(out)],
+                   "-c", "copy", "-f", "matroska", str(out), *lists],
                   on_line=on_line, filt=lambda ln: "" if _PROGRESS_KV_RE.match(ln) else ln)
     if not out.is_file() or out.stat().st_size == 0:
         raise JobFailed(f"Could not read the {track.kind_name} track from the file")
+    return out, listings
+
+
+def _timestamps_v2(source: SourceTracks, track_id: int, listing: Path) -> Path:
+    """A TrueHD track's own timestamps, from ffmpeg's framecrc listing, as an mkvmerge
+    timestamp file (--timestamps). mkvmerge re-times the TrueHD it copies out of Matroska:
+    each frame at the previous frame's stored timestamp plus one frame (0.833 ms), rounded
+    to the millisecond. Every remux moved the track about 1/6 ms later against the picture,
+    and after a few the step after its first frame read as a gap."""
+    tb: Fraction | None = None
+    stamps: list[Fraction] = []
+    for ln in listing.read_text().splitlines():
+        if ln.startswith("#"):
+            m = _TIMEBASE_RE.match(ln)
+            if m:
+                tb = Fraction(int(m.group(1)) * 1000, int(m.group(2)))  # ms per tick
+            continue
+        f = ln.split(",")
+        if len(f) > 2 and tb is not None:
+            stamps.append(int(f[2]) * tb)
+    whole = source.frames(source.position(track_id), len(stamps))
+    if len(stamps) != whole:
+        raise JobFailed(f"Listing the timestamps of TrueHD track {track_id} found {len(stamps)} "
+                        f"of its {whole} frames, so the remux could not keep them: the file "
+                        "was left alone")
+    out = listing.with_suffix(".txt")
+    out.write_text("# timestamp format v2\n" + "".join(
+        f"{t.numerator}\n" if t.denominator == 1 else f"{float(t):.6f}\n" for t in stamps))
     return out
 
 

@@ -22,7 +22,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import assess, charts, layouts, media
+from . import assess, charts, film, layouts, media
 from .config import Settings
 from .db import DB
 from .worker import in_library
@@ -135,14 +135,14 @@ class Library:
 
     # -- assessment -----------------------------------------------------------------
     def reassess(self, ids: list[int] | None = None) -> int:
-        """Recompute the candidate / stale summary (cheap: probe + catalogue only).
+        """Recompute the candidate / stale summary and the best track (cheap: probe +
+        catalogue only), so a change to either rule reaches files that are not rescanned.
 
         Does nothing until the catalogue has loaded: an empty one would clear every
         candidate and report every catalogue-sourced BEQ track as withdrawn."""
         if not self.catalogue.loaded_at:
             return 0
-        q = "SELECT id, path, title, year, edition, tmdb, probe_json, rolloff_json FROM media" \
-            " WHERE probe_json IS NOT NULL"
+        q = "SELECT * FROM media WHERE probe_json IS NOT NULL"
         with self._assess_lock:
             rows = self.db.q(q + (f" AND id IN ({','.join('?' * len(ids))})" if ids else ""),
                              tuple(ids or ()))
@@ -160,10 +160,13 @@ class Library:
                                       ro)
                     if ro:
                         a["rolloff"] = ro
-                    updates.append((assess.dumps(a), a["candidate"], int(a["stale"]), r["id"]))
+                    updates.append((assess.dumps(a), a["candidate"], int(a["stale"]),
+                                    int(probe.best is not None), probe.best_json,
+                                    *film.summary(self.db, self.catalogue, r), r["id"]))
                 except Exception:  # noqa: BLE001 - one odd file must not stop the rest
                     log.exception("Assessment failed for %s", r["path"])
-            self.db.run_many("UPDATE media SET assess_json=?, candidate=?, stale=? WHERE id=?",
+            self.db.run_many("UPDATE media SET assess_json=?, candidate=?, stale=?, has_audio=?,"
+                             " best_json=?, rating=?, filter_count=?, beq_count=? WHERE id=?",
                              updates)
         if ids is None and designer.get("ok"):
             self._designer_key = _designer_key(designer)

@@ -27,6 +27,7 @@ Set these variables in the `environment` block of the `beq-encoder` service in `
 | `DEE_PATH` | `/opt/dee` | The folder that holds `dee_dthd_encoder`, as seen in the container. `compose.yaml` mounts the DEE folder there. If you change this value, change the mount target too. |
 | `DEE_SHIM` | `/usr/local/bin/dee_shim` | The path of dee_shim. |
 | `TARGET_PEAK_DBFS` | `-1.0` | The peak of the filtered track, which the automatic gain meets on every route. |
+| `BEQ_HIGHPASS_HZ` | `0` | The [high-pass floor](how-it-works.md#the-high-pass-floor) that the options of every new job start with, in Hz, from `0` to `40`. Set it to the lowest frequency your subwoofers play, such as the tuning frequency of a ported sub. `0` adds no floor, so the BEQ track is the filter as published. You can change the floor for each job. |
 | `MAX_CONCURRENT_JOBS` | `1` | The number of jobs that run at once. |
 | `KEEP_WORK` | `false` | Keeps the DAMF, WAV, and MLP intermediates after a job. |
 | `ALLOW_TEST_FORMATS` | `false` | Offers FLAC output for channel-based sources. For development only. |
@@ -35,7 +36,7 @@ Set these variables in the `environment` block of the `beq-encoder` service in `
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TRACK_NAME_TEMPLATE` | `BEQ [{gain}] {codec} ({source})` | The name of the BEQ track. `{gain}` is the overall attenuation of the track, such as `-4.5 dB` (see [the track name](output.md#track)). Also accepts `{orig}` and `{author}`. |
+| `TRACK_NAME_TEMPLATE` | `BEQ [{gain}] {codec}` | The name of the BEQ track, cut to 40 characters (see [the track name](output.md#track)). `{gain}` is the overall attenuation of the track, such as `-4.5 dB`. Also accepts `{source}`, `{highpass}`, `{orig}`, and `{author}`. |
 | `BEQ_TRACK_DEFAULT` | `false` | Makes the BEQ track the default track. |
 | `BEQ_CHARTS` | `true` | Makes the charts and the report for every BEQ track. |
 
@@ -64,6 +65,15 @@ Set these variables in the `environment` block of the `beq-encoder` service in `
 | `WATCH_POLL_SECONDS` | `60` | The interval between polls when `WATCH=poll`. |
 | `WATCH_SETTLE_SECONDS` | `60` | How long the size of a new file must stay unchanged before the encoder probes the file. |
 | `ASSESS_AUDIO` | `true` | Runs the background bass screen on films without a BEQ track. |
+
+### Clips
+
+A clip is a short excerpt of a film with its original track and a BEQ track for each filter you choose to hear. See [Hear the filters on a clip](how-it-works.md#hear-the-filters-on-a-clip).
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CLIP_DIR` | `/work/clips` | The folder that clips are written to, as seen in the container. A clip never replaces a file, and never goes next to its film. The folder must be outside `MEDIA_ROOTS`, or the library would take each clip for a film, and clips are then off. To play clips on another device, mount a host folder here. |
+| `CLIP_SECONDS` | `30` | The length of a clip, in seconds, unless you set another when you make it. From 5 to 600. |
 
 ### Service
 

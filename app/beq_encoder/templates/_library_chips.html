@@ -1,0 +1,6 @@
+<nav class="chips" aria-label="Candidate rating">
+  <span class="small muted">Candidate rating</span>
+  {% for c in chips %}
+  <a class="chip{{ ' on' if c.on }}" href="/?{{ c.href }}"{% if c.on %} aria-current="true"{% endif %}{% if c.key %} data-rating="{{ c.key }}"{% endif %}>{{ c.label }} <span class="chip-n">{{ c.count }}</span></a>
+  {% endfor %}
+</nav>

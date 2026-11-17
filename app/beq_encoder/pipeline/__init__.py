@@ -1,10 +1,9 @@
-"""One BEQ job, in two phases.
+"""A job does one of three kinds of slow work for a film.
 
-prepare:  probe -> best track (or the one picked) -> catalogue match for that track's
-          type -> if none: 1 kHz analysis + beqforge designer -> candidates for review
-          (or "no BEQ": a catalogue "no filters" record, or the designer declining);
-          for review, each filter's gain estimated from the 1 kHz analysis (preflight)
-
+design:   probe -> the track -> 1 kHz analysis -> beqforge designer -> its filters, each
+          measured at the cutoffs asked for (prepare.py)
+measure:  probe -> the track -> 1 kHz analysis -> each filter's filtered peak at each cutoff,
+          and the bass level over the running time (prepare.py)
 encode:   the chosen filter on the chosen track, by route (support.Plan):
             damf (TrueHD Atmos):  truehdd -> DAMF -> BEQ into a second DAMF (the first is
                                   kept for the check) -> DEE TrueHD Atmos -> Atmos check
@@ -14,7 +13,7 @@ encode:   the chosen filter on the chosen track, by route (support.Plan):
           -> charts -> mkvmerge to a temp MKV -> track, frame, chapter and attachment check
           -> A/V sync + channel-order check (re-mux if off) -> embed charts -> atomic swap
 
-processes owns the child processes of a job. Each phase is a function of a `Job` (job.py),
+processes owns the child processes of a job. Each kind is a function of a `Job` (job.py),
 which holds what its stages share; what a stage produces, it returns.
 """
 
@@ -24,11 +23,14 @@ import shutil
 
 from .encode import run_encode
 from .job import FileStamp, Job, ProgressCb, file_changed, source_pin, temp_mkv
-from .prepare import run_prepare
+from .prepare import run_design, run_measure
 from .processes import Cancelled, JobFailed
 
 __all__ = ["Cancelled", "FileStamp", "JobFailed", "JobRunner", "file_changed", "source_pin",
            "temp_mkv"]
+
+
+PHASES = {"design": run_design, "measure": run_measure, "encode": run_encode}
 
 
 class JobRunner:
@@ -47,8 +49,10 @@ class JobRunner:
         job = self.job
         try:
             job.procs.check()
-            run_phase = run_prepare if job.params.get("phase") == "prepare" else run_encode
-            return run_phase(job)
+            phase = job.params.get("phase", "encode")
+            if phase not in PHASES:
+                raise JobFailed(f"This kind of work ({phase}) is no longer done here")
+            return PHASES[phase](job)
         except Cancelled:
             raise
         except Exception as exc:

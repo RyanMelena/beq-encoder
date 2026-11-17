@@ -12,6 +12,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from .. import __version__, assess, charts, layouts, media
+from ..biquad import HIGHPASS_ORDER, highpass_label
 from .job import Job
 from .processes import Cancelled, JobFailed
 from .remux import MuxSpec, verify_temp_mkv
@@ -25,6 +26,7 @@ class BeqTrack:
     name: str
     entry: dict
     report: dict    # the job's filter_report
+    highpass_hz: float = 0.0  # the high-pass floor after the filter; 0: none
 
 
 @dataclass(slots=True)
@@ -40,6 +42,11 @@ class ChartSet:
                 "files": {k: p.name for k, p in self.files.items()}}
 
 
+# players and TVs show a track name in a narrow list; the tags carry the rest
+TRACK_NAME_MAX = 40
+_NAME_TAIL = " \t,;:.-/|&+·"
+
+
 def gain_label(gain_db: float | None) -> str:
     """The track's overall level change against the original, as a player shows it in
     the track's name: "-4.5 dB", "0.0 dB", "+2.0 dB". None (not known yet): ""."""
@@ -50,22 +57,58 @@ def gain_label(gain_db: float | None) -> str:
 
 
 def track_name(job: Job, track: media.AudioTrack, codec: str, entry: dict,
-               gain_db: float | None = None) -> str:
+               gain_db: float | None = None, highpass_hz: float = 0.0) -> str:
     """The BEQ track's name. `gain_db`: the uniform gain the filter applied, so the
     listener can see how far to turn the volume up; None before the encode, when the
-    name is only made to check the template."""
+    name is only made to check the template. `highpass_hz`: the floor, for a template
+    with {highpass} ("HPF 15 Hz"). A placeholder with nothing to say leaves no empty
+    brackets or stray comma behind, and a name over TRACK_NAME_MAX is cut to fit."""
     source = entry.get("label") or entry.get("author") or "BEQ"
     try:
         name = job.s.track_name_template.format(
             orig=track.name or track.label, codec=codec, bitrate="",
             author=entry.get("author", ""), source=source, gain=gain_label(gain_db),
+            highpass=highpass_label(highpass_hz),
         ).strip()
     except (KeyError, IndexError, ValueError) as exc:
         raise JobFailed(f"TRACK_NAME_TEMPLATE cannot be used: {exc!r}") from None
-    name = re.sub(r"\s*(\(\s*\)|\[\s*\])", "", name).strip()
+    name = re.sub(r"\s*,\s*(?=[)\]]|$)", "", name)  # "(aron7awol, )" -> "(aron7awol)"
+    name = re.sub(r"([(\[])\s*,\s*", r"\1", name)    # "(, HPF 15 Hz)" -> "(HPF 15 Hz)"
+    name = re.sub(r"\s*(\(\s*\)|\[\s*\])", "", name)
+    name = re.sub(r"\s{2,}", " ", name).strip()
     if not media.BEQ_NAME_RE.search(name):
         name = f"BEQ {name}"
-    return name
+    cut = _cut_name(name)
+    if not media.BEQ_NAME_RE.search(cut):  # the cut took the template's own "BEQ"
+        cut = _cut_name(f"BEQ {name}")
+    return cut
+
+
+def _cut_name(name: str, limit: int = TRACK_NAME_MAX) -> str:
+    """`name` in at most `limit` characters: whole words, every bracket closed, no
+    punctuation left hanging at the end."""
+    if len(name) <= limit:
+        return name
+    cut = name[:limit]
+    if not name[limit].isspace() and " " in cut:
+        cut = cut[:cut.rindex(" ")]
+    while True:
+        cut = cut.rstrip(_NAME_TAIL)
+        opened = _unclosed_bracket(cut)
+        if opened is None:
+            return cut
+        cut = cut[:opened]
+
+
+def _unclosed_bracket(text: str) -> int | None:
+    """Where the first bracket that never closes opens."""
+    stack: list[int] = []
+    for i, ch in enumerate(text):
+        if ch in "([":
+            stack.append(i)
+        elif ch in ")]" and stack:
+            stack.pop()
+    return stack[0] if stack else None
 
 
 def _stream_shape(job: Job, path: Path) -> tuple[int, str | None]:
@@ -142,7 +185,8 @@ def _charts(job: Job, beq: BeqTrack, out: Path, local: Path,
     facts.append(("BEQ track", f"{beq.codec}"))
     info = charts.ChartInfo(
         title=title, source_track=source_track, beq_track=beq.name, beq_source=beq_source,
-        filters=entry.get("filters") or [], gain_db=float(report.get("gain_db") or 0.0),
+        filters=entry.get("filters") or [], highpass_hz=beq.highpass_hz,
+        gain_db=float(report.get("gain_db") or 0.0),
         peak_in_dbfs=report.get("peak_in_dbfs"), peak_out_dbfs=report.get("peak_out_dbfs"),
         mv_db=mv, encoder=f"beq-encoder {__version__}",
         date=datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d"), facts=facts)
@@ -175,7 +219,8 @@ def embed_charts(job: Job, spec: MuxSpec, beq: BeqTrack, art: ChartSet, sync: di
         "filter": {k: entry.get(k) for k in (
             "origin", "label", "author", "title", "year", "audio_types", "source",
             "digest", "mv", "url", "strategy", "designer_release", "design_version",
-            "design_settings", "filters") if entry.get(k) not in (None, "", [])},
+            "design_settings", "filters") if entry.get(k) not in (None, "", [])}
+        | ({"highpass": highpass_report(beq.highpass_hz)} if beq.highpass_hz else {}),
         "levels": {k: report.get(k) for k in (
             "gain_db", "peak_in_dbfs", "peak_filtered_dbfs", "peak_out_dbfs",
             "clipped_samples", "sample_rate", "bits", "pad_frames", "gaps",
@@ -207,6 +252,12 @@ def embed_charts(job: Job, spec: MuxSpec, beq: BeqTrack, art: ChartSet, sync: di
     return True
 
 
+def highpass_report(hz: float) -> dict:
+    """The floor as the report records it, enough to rebuild it: biquad.highpass_rows."""
+    return {"type": "Butterworth high-pass", "order": HIGHPASS_ORDER, "freq": hz,
+            "label": highpass_label(hz)}
+
+
 def write_tags(job: Job, beq: BeqTrack, art: ChartSet | None = None) -> Path:
     """Matroska track tags recording where the filter came from, so a later run can
     tell a catalogue entry from a design, and which designer version made it."""
@@ -222,6 +273,9 @@ def write_tags(job: Job, beq: BeqTrack, art: ChartSet | None = None) -> Path:
         "BEQ_DESIGN_VERSION": str(entry.get("design_version") or ""),
         "BEQ_DESIGN_SETTINGS": entry.get("design_settings") or "",
         "BEQ_FILTERS": json.dumps(entry.get("filters") or []),
+        # the floor after BEQ_FILTERS (none: no tags, as before the floor existed)
+        "BEQ_HIGHPASS_HZ": f"{beq.highpass_hz:g}" if beq.highpass_hz else "",
+        "BEQ_HIGHPASS_ORDER": str(HIGHPASS_ORDER) if beq.highpass_hz else "",
         "BEQ_GAIN_DB": str(report.get("gain_db", "")),
         "BEQ_SOURCE_TRACK": f"{track.label} ({track.codec})",
         "BEQ_OUTPUT": beq.codec,

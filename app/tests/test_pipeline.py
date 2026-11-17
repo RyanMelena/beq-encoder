@@ -12,6 +12,7 @@ decode that output.
 
 import ast
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -276,9 +277,9 @@ def _run(s, path, params, tmp):
     return r.run(), stages
 
 
-def beq_name(codec, source, result):
+def beq_name(codec, result):
     """The default track name, with the attenuation the job reported."""
-    name = f"BEQ [{gain_label(result['filter_report']['gain_db'])}] {codec} ({source})"
+    name = f"BEQ [{gain_label(result['filter_report']['gain_db'])}] {codec}"
     assert result["track_name"] == name
     return name
 
@@ -305,7 +306,7 @@ def test_truehd_atmos_end_to_end(env, monkeypatch, decoder, times):
     after = media.probe(str(path))
     assert [t["type"] for t in after.tracks] == ["video", "audio", "audio", "audio"]
     beq = after.audio[1]
-    assert beq.name == beq_name("TrueHD Atmos", "tester", result)
+    assert beq.name == beq_name("TrueHD Atmos", result)
     assert beq.beq and not beq.default
     assert "TrueHD" in beq.codec and beq.language == "en"
     assert result["filter_report"]["gain_db"] < 0
@@ -468,6 +469,28 @@ def test_lossy_outputs_and_a_dee_without_the_truehd_encoder_are_refused(env):
     assert not (tmp / "dee-args.txt").exists()
 
 
+def _pts(path, audio_index):
+    return subprocess.run(["ffprobe", "-v", "error", "-select_streams", f"a:{audio_index}",
+                           "-show_entries", "packet=pts", "-of", "csv=p=0", str(path)],
+                          capture_output=True, text=True, check=True).stdout.split()
+
+
+def test_remuxes_keep_the_timestamps_of_the_truehd_tracks_they_copy(env):
+    """mkvmerge re-times the TrueHD it copies out of Matroska (tools._timestamps_v2): each
+    remux moved such a track about 1/6 ms later, until the step after its first frame read
+    as a gap and the next run was refused."""
+    s, path, tmp = env
+    original = _pts(path, 0)
+    _run(s, path, _params(media.probe(str(path))), tmp)
+    first = media.probe(str(path))
+    beq = _pts(path, first.beq_tracks[0].audio_index)
+    _run(s, path, _params(first, replace_existing_beq=False), tmp)
+    after = media.probe(str(path))
+    assert len(after.beq_tracks) == 2
+    assert _pts(path, 0) == original
+    assert _pts(path, after.beq_tracks[1].audio_index) == beq  # the first run's, kept
+
+
 def test_rerun_replaces_the_beq_track_and_its_attachments(env):
     s, path, tmp = env
     _run(s, path, _params(media.probe(str(path))), tmp)
@@ -476,7 +499,7 @@ def test_rerun_replaces_the_beq_track_and_its_attachments(env):
     result, _ = _run(s, path, _params(first, replace_existing_beq=True, default_flag=True), tmp)
     after = media.probe(str(path))
     assert len(after.audio) == 3 and len(after.beq_tracks) == 1
-    assert after.audio[1].name == beq_name("TrueHD Atmos", "tester", result)
+    assert after.audio[1].name == beq_name("TrueHD Atmos", result)
     assert after.audio[1].default
     assert not after.audio[0].default
     assert len(after.beq_attachments) == 3
@@ -765,7 +788,7 @@ def test_a_cancelled_queued_job_is_never_started(env, monkeypatch):
     s, path, tmp = env
     db = DB(s.db_path)
     queue = JobQueue(s, db)
-    job = db.create_job(None, str(path), {"phase": "prepare"})
+    job = db.create_job(None, str(path), {"phase": "design"})
     row = db.one("SELECT * FROM jobs WHERE id=?", (job,))  # what the queue had selected
     assert queue.cancel(job) is True
     assert queue.cancel(job + 99) is False
@@ -777,14 +800,14 @@ def test_a_cancelled_queued_job_is_never_started(env, monkeypatch):
     assert db.one("SELECT status FROM jobs WHERE id=?", (job,))["status"] == "cancelled"
 
 
-def test_one_active_job_per_file(env):
+def test_one_active_job_of_a_kind_per_file(env):
     s, path, tmp = env
     db = DB(s.db_path)
-    first = db.create_job(None, str(path), {"phase": "prepare"})
+    first = db.create_job(None, str(path), {"phase": "design"})
     assert first is not None
-    assert db.create_job(None, str(path), {"phase": "prepare"}) is None
+    assert db.create_job(None, str(path), {"phase": "design"}) is None
     db.update_job(first, status="done")
-    assert db.create_job(None, str(path), {"phase": "prepare"}) is not None
+    assert db.create_job(None, str(path), {"phase": "design"}) is not None
 
 
 def test_a_scan_keeps_the_rows_of_a_missing_or_empty_root(env):
@@ -1077,6 +1100,54 @@ def test_the_space_check_wants_the_source_plus_the_new_track(env, monkeypatch, s
             _run(s, path, _pcm_params(pr), tmp)
 
 
+def test_the_floor_is_applied_checked_and_recorded_on_the_atmos_route(env):
+    from scipy.signal import sosfilt
+    s, path, tmp = env
+    s.keep_work = True
+    pr = media.probe(str(path))
+    result, _ = _run(s, path, _params(pr, highpass_hz=15.0), tmp)
+    work = s.work_dir / "job-1"
+    source = read_caf(work / "source.atmos.audio")
+    given = read_caf(work / "atmos.atmos.audio")
+    bands = [FilterSpec.from_catalogue(f) for f in ENTRY["filters"]]
+    gain = result["filter_report"]["gain"]
+    exact = sosfilt(design_sos(bands, 48000.0, 15.0), source, axis=0) * gain
+    assert np.abs(given - exact).max() * 2**23 <= 0.5 + 1e-6
+    without = sosfilt(design_sos(bands, 48000.0), source, axis=0) * gain
+    assert np.abs(given - without).max() * 2**23 > 100  # the floor did something
+    assert result["filter_report"]["fidelity"]["ok"]  # checked against the same cascade
+    assert result["highpass_hz"] == 15.0
+    label = gain_label(result["filter_report"]["gain_db"])
+    assert result["track_name"] == f"BEQ [{label}] TrueHD Atmos"  # the floor is in the tags
+    beq = media.probe(str(path)).beq_tracks[0]
+    assert beq.name == result["track_name"]
+    assert beq.beq_tags["highpass_hz"] == "15" and beq.beq_tags["highpass_order"] == "4"
+    # the catalogue's bands are recorded as published: the floor is not one of them
+    assert json.loads(beq.beq_tags["filters"]) == ENTRY["filters"]
+    report = json.loads((s.charts_dir / "job-1" / "beq.json").read_text())
+    assert report["filter"]["highpass"] == {"type": "Butterworth high-pass", "order": 4,
+                                            "freq": 15.0, "label": "HPF 15 Hz"}
+    assert report["filter"]["filters"] == ENTRY["filters"]
+    assert "then a 15 Hz high-pass floor" in (tmp / "job.log").read_text()
+
+
+def test_a_job_without_a_floor_records_none(env):
+    s, path, tmp = env
+    s.charts = False
+    result, _ = _run(s, path, _params(media.probe(str(path))), tmp)
+    assert result["highpass_hz"] == 0.0
+    tags = media.probe(str(path)).beq_tracks[0].beq_tags
+    assert "highpass_hz" not in tags and "highpass_order" not in tags
+    assert "HPF" not in result["track_name"]
+
+
+def test_a_floor_out_of_range_fails_before_the_expensive_stages(env):
+    s, path, tmp = env
+    with pytest.raises(JobFailed, match="high-pass floor"):
+        _run(s, path, _params(media.probe(str(path)), highpass_hz=200.0), tmp)
+    assert not (s.work_dir / "job-1").exists()
+
+
 @pytest.mark.parametrize("codec", ["ac3", "eac3"])
 def test_a_finished_encode_can_be_retried_after_it_added_a_truehd_track(env, codec):
     s, path, tmp = env
@@ -1264,14 +1335,72 @@ def test_the_track_name_gives_the_overall_attenuation():
             job.s.track_name_template = template
         return track_name(job, track, "TrueHD Atmos", entry, gain)
 
-    assert name(-4.537) == "BEQ [-4.5 dB] TrueHD Atmos (aron7awol)"
-    assert name(-0.04) == "BEQ [0.0 dB] TrueHD Atmos (aron7awol)"
-    assert name(0.0) == "BEQ [0.0 dB] TrueHD Atmos (aron7awol)"
-    assert name(2) == "BEQ [+2.0 dB] TrueHD Atmos (aron7awol)"
+    assert name(-4.537) == "BEQ [-4.5 dB] TrueHD Atmos"
+    assert name(-0.04) == "BEQ [0.0 dB] TrueHD Atmos"
+    assert name(0.0) == "BEQ [0.0 dB] TrueHD Atmos"
+    assert name(2) == "BEQ [+2.0 dB] TrueHD Atmos"
     # before the encode the gain is not known: no empty brackets
-    assert name(None) == "BEQ TrueHD Atmos (aron7awol)"
+    assert name(None) == "BEQ TrueHD Atmos"
     assert name(-12.26, "{codec} {gain} {source}") == "BEQ TrueHD Atmos -12.3 dB aron7awol"
     assert name(-3.0, "BEQ {codec}") == "BEQ TrueHD Atmos"
+
+
+def test_the_track_name_says_when_a_floor_was_added():
+    from beq_encoder.pipeline.artifacts import track_name
+    job = SimpleNamespace(s=config.Settings())
+    track = SimpleNamespace(name="", label="TrueHD Atmos 7.1")
+    entry = {"label": "aron7awol", "author": "aron7awol"}
+
+    def name(gain, hz, template=None):
+        if template:
+            job.s.track_name_template = template
+        return track_name(job, track, "TrueHD Atmos", entry, gain, hz)
+
+    # the default leaves the floor to the tags
+    assert name(-1.5, 15.0) == "BEQ [-1.5 dB] TrueHD Atmos"
+    with_floor = "BEQ [{gain}] {codec} ({highpass})"
+    assert name(-1.5, 15.0, with_floor) == "BEQ [-1.5 dB] TrueHD Atmos (HPF 15 Hz)"
+    assert name(-1.5, 12.5) == "BEQ [-1.5 dB] TrueHD Atmos (HPF 12.5 Hz)"
+    assert name(-1.5, 0.0) == "BEQ [-1.5 dB] TrueHD Atmos"
+    assert name(None, 15.0) == "BEQ TrueHD Atmos (HPF 15 Hz)"
+    assert name(-1.5, 15.0, "BEQ {highpass} {codec}") == "BEQ HPF 15 Hz TrueHD Atmos"
+    assert name(-1.5, 0.0, "BEQ {highpass} {codec}") == "BEQ TrueHD Atmos"
+    assert name(-1.5, 0.0, "BEQ [{highpass}, {gain}] {codec}") == "BEQ [-1.5 dB] TrueHD Atmos"
+    assert name(-1.5, 0.0, "BEQ {codec} ({source}, {highpass})") == "BEQ TrueHD Atmos (aron7awol)"
+
+
+def test_a_long_track_name_is_cut_to_40_characters():
+    from beq_encoder.pipeline.artifacts import TRACK_NAME_MAX, track_name
+    job = SimpleNamespace(s=config.Settings())
+    entry = {"label": "beqforge 0.3.3 flatten", "author": ""}
+
+    def name(template, orig="TrueHD Atmos 7.1", codec="TrueHD Atmos 7.1"):
+        job.s.track_name_template = template
+        track = SimpleNamespace(name=orig, label=orig)
+        got = track_name(job, track, codec, entry, -4.5, 15.0)
+        assert len(got) <= TRACK_NAME_MAX and media.BEQ_NAME_RE.search(got)
+        return got
+
+    assert TRACK_NAME_MAX == 40
+    assert name("BEQ [{gain}] {codec}") == "BEQ [-4.5 dB] TrueHD Atmos 7.1"  # fits: untouched
+    exact = "BEQ [{gain}] {codec} 123456789"
+    assert len(name(exact)) == 40 and name(exact).endswith("123456789")
+    # the cut would land inside "flatten": the whole word goes
+    assert name("BEQ [{gain}] {codec} {source}") == "BEQ [-4.5 dB] TrueHD Atmos 7.1 beqforge"
+    # the cut lands inside the brackets: they go, with what was in them
+    old_default = "BEQ [{gain}] {codec} ({source}, {highpass})"
+    assert name(old_default) == "BEQ [-4.5 dB] TrueHD Atmos 7.1"
+    assert name("BEQ {codec} [{source}, {highpass}, {gain}]") == "BEQ TrueHD Atmos 7.1"
+    # brackets that close before the limit stay
+    assert name("BEQ ({highpass}) {codec} {source} {gain}") == \
+        "BEQ (HPF 15 Hz) TrueHD Atmos 7.1"
+    # no punctuation left at the end
+    assert name("BEQ {codec}, {highpass} - {source} - {gain}") == \
+        "BEQ TrueHD Atmos 7.1, HPF 15 Hz"
+    # a "BEQ" beyond the limit moves to the front
+    long_orig = "Dolby TrueHD Atmos 7.1 English Commentary"
+    assert name("{orig} BEQ {gain}", orig=long_orig) == "BEQ Dolby TrueHD Atmos 7.1 English"
+    assert name("BEQ-" + "x" * 50) == "BEQ-" + "x" * 36  # no word to cut at
 
 
 def test_a_beq_track_is_refused_as_a_source(env):

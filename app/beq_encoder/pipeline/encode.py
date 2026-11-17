@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .. import media, pcmio, support
 from ..beqfilter import FilterJob
-from ..biquad import FilterSpec
+from ..biquad import FilterSpec, check_highpass
 from . import artifacts, remux, route_atmos, route_pcm, tools
 from .job import Encoded, FileStamp, Job, source_pin
 from .processes import JobFailed
@@ -89,6 +89,19 @@ def _start_offset(job: Job, route: str, start: float, rate: int) -> tuple[float,
     return sync_ms, pad
 
 
+def filter_job(entry: dict, p: dict) -> FilterJob:
+    """The BEQ an encode with settings `p` applies: the entry's filters and the high-pass
+    floor `p` asks for (none in a job queued before floors existed: it was chosen without
+    one), at the gain `p` asks for. A clip builds its BEQ here too, so it plays what the
+    encode would write. A bad floor raises ValueError."""
+    return FilterJob(
+        filters=[FilterSpec.from_catalogue(f) for f in entry["filters"]],
+        target_peak_dbfs=float(p.get("target_peak_dbfs", -1.0)),
+        fixed_gain_db=p.get("fixed_gain_db"),
+        highpass_hz=check_highpass(p.get("highpass_hz") or 0.0),
+    )
+
+
 def run_encode(job: Job) -> dict:
     p = job.params
     fmt = p.get("format", "truehd")
@@ -116,20 +129,23 @@ def run_encode(job: Job) -> dict:
             f"({track.codec}) layout={track.layout} lang={track.language} "
             f"name={track.name!r} delay={track.delay_ms}ms; route {route}, output {fmt}")
 
+    try:  # a job queued before the floor existed has none: it was chosen without one
+        highpass_hz = check_highpass(p.get("highpass_hz") or 0.0)
+    except ValueError as exc:
+        raise JobFailed(str(exc)) from None
     dee = _require_dee(job, fmt)
     codec = codec_label(route, track, fmt)
-    artifacts.track_name(job, track, codec, entry)  # a bad template fails before the long stages
+    # a bad template fails before the long stages
+    artifacts.track_name(job, track, codec, entry, highpass_hz=highpass_hz)
     _check_space(job, probe, route, fmt, track)
     job.work.mkdir(parents=True, exist_ok=True)
 
-    fj = FilterJob(
-        filters=[FilterSpec.from_catalogue(f) for f in entry["filters"]],
-        target_peak_dbfs=float(p.get("target_peak_dbfs", -1.0)),
-        fixed_gain_db=p.get("fixed_gain_db"),
-    )
+    fj = filter_job(entry, p)
     job.log(f"BEQ: {entry.get('title')} ({entry.get('year')}) "
             f"{', '.join(entry.get('audio_types') or [])} by {entry.get('label')} — "
-            f"{len(fj.filters)} filters")
+            f"{len(fj.filters)} filters"
+            + (f", then a {highpass_hz:g} Hz high-pass floor (Butterworth, 4th order)"
+               if highpass_hz else ""))
 
     duration = probe.duration_s
     rate = int(track.sample_rate or tools.SR)
@@ -156,11 +172,12 @@ def run_encode(job: Job) -> dict:
         sync_ms -= 1000 * lead / rate
         job.log(f"The encoder added {lead} frames of leading silence: --sync now {sync_ms:.2f} ms")
     # dialnorm is the source's own, so this gain is the whole level change against it
-    name = artifacts.track_name(job, track, codec, entry, report.get("gain_db"))
+    name = artifacts.track_name(job, track, codec, entry, report.get("gain_db"), highpass_hz)
     job.log(f"BEQ track name: {name}")
 
     return _deliver(job, stamp, probe, source, track, fmt, route, sync_ms,
-                    artifacts.BeqTrack(track, codec, name, entry, report), encoded, rate)
+                    artifacts.BeqTrack(track, codec, name, entry, report, highpass_hz),
+                    encoded, rate)
 
 
 def _deliver(job: Job, stamp: FileStamp, probe: media.ProbeResult, source: tools.SourceTracks,
@@ -219,6 +236,7 @@ def _deliver(job: Job, stamp: FileStamp, probe: media.ProbeResult, source: tools
         "format": fmt,
         "route": route,
         "codec": beq.codec,
+        "highpass_hz": beq.highpass_hz,
         "filter_report": beq.report,
         "output_bytes": out.stat().st_size,
         "replaced_tracks": replace_ids,

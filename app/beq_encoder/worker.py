@@ -14,7 +14,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from . import media
+from . import media, store
 from .config import Settings
 from .db import DB
 from .pipeline import Cancelled, JobFailed, JobRunner, temp_mkv
@@ -44,15 +44,9 @@ def _run_to_outcome(runner: JobRunner) -> tuple[dict, str | None]:
     """Run the job: what to write on its row afterwards, and the last line for its log."""
     try:
         result = runner.run()
-        if result.get("phase") == "prepare":
-            awaiting = result["outcome"] == "awaiting"
-            return dict(
-                status=result["outcome"], percent=None,
-                stage={"awaiting": "Ready for review", "no_beq": "No BEQ"}.get(
-                    result["outcome"], "Not supported"),
-                prepare_json=json.dumps(result), result_json=None,
-                finished_at=None if awaiting else time.time(), message=result["message"],
-            ), f"Prepared: {result['outcome']}: {result['message']}"
+        if result.get("phase") in ("design", "measure"):
+            return dict(status="done", stage="Done", percent=100, result_json=json.dumps(result),
+                        finished_at=time.time(), message=_found(result)), None
         return dict(
             status="done", stage="Done", percent=100,
             result_json=json.dumps(result), finished_at=time.time(),
@@ -68,6 +62,16 @@ def _run_to_outcome(runner: JobRunner) -> tuple[dict, str | None]:
     except Exception as exc:
         return dict(status="failed", stage="Failed", message=f"{type(exc).__name__}: {exc}",
                     finished_at=time.time()), "FAILED:\n" + traceback.format_exc()
+
+
+def _found(result: dict) -> str:
+    """What a finished design or measuring job found, for its row."""
+    if result["phase"] == "measure":
+        return f"Measured {len(next(iter(result['levels'].values()), {}))} filters"
+    d = result["design"]
+    if d["declined"]:
+        return f"BEQ Forge designed no filter: {d['decline_message'] or d['decline_reason']}"
+    return f"BEQ Forge designed {len(d['candidates'])} filters"
 
 
 class JobQueue:
@@ -126,15 +130,29 @@ class JobQueue:
                 free = self.s.max_concurrent_jobs - len(self.running)
             if free > 0:
                 try:
-                    rows = self.db.q(
-                        "SELECT * FROM jobs WHERE status='queued' ORDER BY id LIMIT ?", (free,)
-                    )
-                    for row in rows:
+                    for row in self._startable(free):
                         self._start(row)
                 except Exception:  # the queue must outlive any one bad job row
                     log.exception("Job queue: starting a job failed")
             self._wake.wait(3)
             self._wake.clear()
+
+    def _startable(self, free: int) -> list:
+        """The queued jobs to start now, oldest first. One film's jobs never run together:
+        adding a BEQ track replaces the file the others read. A BEQ track is not added while
+        a clip is cut from the film."""
+        with self._lock:
+            busy = {str(r.src) for r in self.running.values()}
+        cutting = {r["path"] for r in self.db.q("SELECT path FROM clips WHERE status='running'")}
+        rows = []
+        for row in self.db.q("SELECT * FROM jobs WHERE status='queued' ORDER BY id"):
+            if len(rows) == free:
+                break
+            if row["path"] in busy or (row["phase"] == "encode" and row["path"] in cutting):
+                continue
+            busy.add(row["path"])
+            rows.append(row)
+        return rows
 
     def _start(self, row) -> None:
         job_id = int(row["id"])
@@ -180,15 +198,28 @@ class JobQueue:
                 runner.log(last_line)
             except Exception:  # e.g. a full /config: the row must still get its status
                 log.exception("Could not write job %s's log", job_id)
+        result = json.loads(fields.get("result_json") or "null") or {}
+        # What the job found and the file it changed are on the film's row before the job's
+        # row says it ended, so a page that sees it ended sees its result.
+        if media_id and fields["status"] == "done":
+            try:
+                store.record(self.db, media_id, job_id, result)
+                if result.get("phase") == "encode":
+                    store.carry_over(self.db, media_id, runner.job.params.get("source"),
+                                     result.get("source"))
+            except Exception:
+                log.exception("Could not keep what job %s found", job_id)
+        if media_id:
+            try:  # incremental: only a swapped file has changed
+                scanned = scan_file(self.s, self.db, Path(runner.src), force=False,
+                                    on_scanned=self.on_scanned)
+                if scanned is None and self.on_scanned:  # a new filter changes the film's row
+                    self.on_scanned(media_id)
+            except Exception:
+                log.exception("Rescan after job %s failed", job_id)
         self._write_final_status(job_id, fields)
         with self._lock:
             self.running.pop(job_id, None)
-        if media_id:
-            try:  # incremental: only a swapped file has changed
-                scan_file(self.s, self.db, Path(runner.src), force=False,
-                          on_scanned=self.on_scanned)
-            except Exception:
-                log.exception("Rescan after job %s failed", job_id)
         self._wake.set()
 
     def _write_final_status(self, job_id: int, fields: dict) -> None:
@@ -221,12 +252,9 @@ def scan_file(s: Settings, db: DB, path: Path, force: bool = True,
     )
     try:
         pr = media.probe(str(path), s.mkvmerge, s.ffprobe)
-        best = pr.best
         fields.update(
             has_atmos=int(bool(pr.atmos_tracks)), has_beq=int(bool(pr.beq_tracks)),
-            has_audio=int(best is not None),
-            best_json=json.dumps({"track_id": best.track_id, "label": best.label,
-                                  "kind": best.kind, "objects": best.objects}) if best else None,
+            has_audio=int(pr.best is not None), best_json=pr.best_json,
             beq_names=json.dumps([a.name for a in pr.beq_tracks]),
             probe_json=pr.to_json(), error=None,
         )

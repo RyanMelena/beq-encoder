@@ -11,6 +11,29 @@ from .workers import POOL
 
 SUPPORTED_TYPES = ("PeakingEQ", "LowShelf", "HighShelf")
 
+# The high-pass floor: an optional cut below the bass a system can play (a ported sub's
+# tuning frequency), added to the BEQ cascade. A 4th-order Butterworth: flat down to the
+# corner, -3 dB at it and 24 dB/octave below, as two RBJ high-pass biquads whose Qs are
+# the Butterworth pole pairs (0.541, 1.307). 0 means no floor.
+HIGHPASS_ORDER = 4
+HIGHPASS_QS = tuple(1 / (2 * math.cos(math.pi * (2 * k + 1) / (2 * HIGHPASS_ORDER)))
+                    for k in range(HIGHPASS_ORDER // 2))
+HIGHPASS_MAX_HZ = 40.0  # above this a floor cuts the bass the BEQ restores, not what lies below
+
+
+def check_highpass(hz: float) -> float:
+    """A floor's frequency in Hz, refused unless 0 (none) or up to HIGHPASS_MAX_HZ."""
+    hz = float(hz)
+    if not (math.isfinite(hz) and 0 <= hz <= HIGHPASS_MAX_HZ):
+        raise ValueError(f"A high-pass floor must be between 0 (none) and "
+                         f"{HIGHPASS_MAX_HZ:g} Hz, not {hz:g}")
+    return hz
+
+
+def highpass_label(hz: float) -> str:
+    """A floor as names and reports write it: "HPF 15 Hz"; "" for none."""
+    return f"HPF {hz:g} Hz" if hz else ""
+
 
 @dataclass(frozen=True, slots=True)
 class FilterSpec:
@@ -85,22 +108,43 @@ def rbj(spec: FilterSpec, fs: float) -> tuple[list[float], list[float]]:
     return [x / a0 for x in b], [x / a0 for x in a]
 
 
-def design_sos(filters: list[FilterSpec], fs: float) -> np.ndarray:
-    """Cascade every filter (expanding `count`) into an (n, 6) SOS array."""
+def highpass_rows(hz: float, fs: float) -> list[list[float]]:
+    """The floor at `hz` as SOS rows (none for 0): RBJ high-pass biquads at the
+    Butterworth Qs, which together are the bilinear transform of a 4th-order Butterworth
+    prewarped at `hz`."""
+    rows = []
+    if not hz:
+        return rows
+    w = 2 * math.pi * hz / fs
+    c, s = math.cos(w), math.sin(w)
+    for q in HIGHPASS_QS:
+        alpha = s / (2 * q)
+        b = [(1 + c) / 2, -(1 + c), (1 + c) / 2]
+        a = [1 + alpha, -2 * c, 1 - alpha]
+        rows.append([*(x / a[0] for x in b), *(x / a[0] for x in a)])
+    return rows
+
+
+def design_sos(filters: list[FilterSpec], fs: float, highpass_hz: float = 0.0) -> np.ndarray:
+    """Cascade every filter (expanding `count`), then the high-pass floor at `highpass_hz`
+    (0: none), into an (n, 6) SOS array. Every pass that applies or checks a BEQ designs
+    its cascade here, so the encode and its checks run the same one."""
     rows = []
     for f in filters:
         if f.gain == 0:
             continue
         b, a = rbj(f, fs)
         rows.extend([[*b, *a]] * f.count)
+    rows += highpass_rows(highpass_hz, fs)
     if not rows:
         return np.array([[1.0, 0, 0, 1.0, 0, 0]])
     return np.asarray(rows, dtype=np.float64)
 
 
-def response_db(filters: list[FilterSpec], freqs: np.ndarray, fs: float = 48000) -> np.ndarray:
-    """Magnitude response in dB of the full cascade at the given frequencies."""
-    sos = design_sos(filters, fs)
+def response_db(filters: list[FilterSpec], freqs: np.ndarray, fs: float = 48000,
+                highpass_hz: float = 0.0) -> np.ndarray:
+    """Magnitude response in dB of the full cascade (with its floor) at the given frequencies."""
+    sos = design_sos(filters, fs, highpass_hz)
     z = np.exp(-1j * 2 * np.pi * freqs / fs)
     h = np.ones_like(z)
     for b0, b1, b2, a0, a1, a2 in sos:

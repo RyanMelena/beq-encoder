@@ -12,7 +12,6 @@ import numpy as np
 
 from .. import beqfilter, caf, layouts, media, pcmio
 from ..beqfilter import FilterJob, WriteBlock
-from ..biquad import design_sos
 from ..dee import PCM_INPUTS, WAV_CHANNEL_ORDER
 from . import tools
 from .job import Encoded, Job
@@ -73,7 +72,7 @@ def _filter_to_file(job: Job, track: media.AudioTrack, source: tools.LocalTrack,
     except ValueError as exc:
         raise JobFailed(str(exc)) from None
     rate = int(track.sample_rate or tools.SR)  # the source's own rate: resampling loses data
-    sos = design_sos(fj.filters, float(rate))
+    sos = fj.sos(float(rate))
     local, fmap = source.path, source.timeline
     if fmap.gaps:
         job.log(f"NOTE: the decoder produced nothing for {len(fmap.gaps)} stretch(es) of "
@@ -109,7 +108,8 @@ def _filter_to_file(job: Job, track: media.AudioTrack, source: tools.LocalTrack,
             emit(np.zeros((pad, ch), dtype="<i4").tobytes())
         res = beqfilter.filter_stream(read, block_writer(emit, order), sos, ch,
                                       fj.target_peak_dbfs, fj.fixed_gain_db, pcmio.LSB24,
-                                      f"BEQ filter: writing {label}")
+                                      f"BEQ filter: writing {label}",
+                                      programme_peak_dbfs=fj.programme_peak_dbfs)
     limited_by = ("fixed gain" if fj.fixed_gain_db is not None else
                   "none needed" if res.gain_db == 0.0 else "target")
     report = {"path": str(out), "channels": ch, "layout": layout, "sample_rate": float(rate),

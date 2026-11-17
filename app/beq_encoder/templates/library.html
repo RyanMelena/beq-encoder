@@ -1,152 +1,94 @@
 {% extends "base.html" %}
+{% block title %}Library · BEQ Encoder{% endblock %}
 {% block body %}
-{% macro here() %}<input type="hidden" name="show" value="{{ show }}"><input type="hidden" name="q" value="{{ q }}">{% endmacro %}
-{% macro path_form(action, label, field, example, button) %}
-  {% set err = rejected if rejected and rejected.action == action %}
-  <form method="post" action="{{ action }}" class="lib-path">
-    {{ here() }}
-    <label for="f-{{ field }}">{{ label }}</label>
-    <div class="lib-path-row">
-      <input id="f-{{ field }}" type="text" name="{{ field }}" required value="{{ err.typed if err }}" placeholder="{{ example }}"{% if err %} aria-invalid="true" aria-describedby="f-{{ field }}-error" autofocus{% endif %}>
-      <button class="ghost">{{ button }}</button>
-    </div>
-    {% if err %}<p class="bad" id="f-{{ field }}-error">{{ err.message }}</p>{% endif %}
-  </form>
-{% endmacro %}
-<section class="lib-head">
-  <h1>Library</h1>
-  <form method="post" action="/scan" class="inline lib-scan">
-    {{ here() }}
-    <button {{ 'disabled' if scan.running }}>{{ 'Scanning…' if scan.running else 'Scan library' }}</button>
-  </form>
-  <details class="lib-add"{{ ' open' if rejected }}>
-    <summary class="btn ghost">More</summary>
-    <div class="lib-panel">
-      <div class="lib-panel-actions">
-        <form method="post" action="/scan" class="inline">
-          {{ here() }}
-          <input type="hidden" name="full" value="on">
-          <button class="ghost" {{ 'disabled' if scan.running }}>Rescan all files</button>
-        </form>
-        <form method="post" action="/catalogue/refresh" class="inline">
-          {{ here() }}
-          <button class="ghost">Refresh catalogue</button>
-        </form>
-        <p class="muted small">Scan library skips files that haven't changed. Rescan all files reads every file again.</p>
-      </div>
-      <div class="lib-add-forms">
-        {{ path_form('/scan', 'Scan folder', 'folder', (roots[0] if roots else '/media') ~ '/Title (2020)', 'Scan folder') }}
-        {{ path_form('/media/add', 'Add file', 'path', '/media/movies/Title (2020)/Title (2020).mkv', 'Add file') }}
-      </div>
-      <div>
-        <h2>System details</h2>
-        <dl class="kv">
-          <dt>Library folders:</dt>
-          <dd>{% for r in roots %}<code>{{ r }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</dd>
-          <dt>New-file detection:</dt>
-          <dd>{{ lib.watch }}</dd>
-          {% if lib.next_scan_at %}<dt>Next scan:</dt>
-          <dd>{{ lib.next_scan_at|t }}</dd>{% endif %}
-          {% if counts.todo %}<dt>Bass check:</dt>
-          <dd>{{ counts.bass_checked or 0 }} of {{ counts.todo }} films without a BEQ checked</dd>{% endif %}
-          <dt>Catalogue:</dt>
-          <dd>{% if cat.entries %}{{ cat.entries|length }} entries, updated {{ '%.1f'|format(cat.age_days() or 0) }} days ago{% else %}<span class="bad">not loaded</span>{% endif %}{% if cat.error %} <span class="bad">{{ cat.error }}</span>{% endif %}</dd>
-          {% set d = dee() %}
-          <dt>Output:</dt>
-          <dd>{% if d.ok %}<span class="good">TrueHD Atmos and TrueHD (DEE)</span>{% else %}<span class="bad">no TrueHD: DEE unavailable</span>{% if S_allow_test %} (FLAC test output only){% endif %}{% endif %}</dd>
-        </dl>
-      </div>
-    </div>
-  </details>
-</section>
+<h1>Library</h1>
 
-<section class="status" id="scan-status" {{ 'hidden' if not scan.running and not scan.error }}>
-  {% if scan.running %}Scanning {{ scan.done }} / {{ scan.found }} … <span class="muted">{{ scan.current }}</span>{% endif %}
-  {% if scan.error %}<span class="bad">{{ scan.error }}</span>{% endif %}
-</section>
-<p class="lib-info muted"><span id="lib-status" class="{{ 'bad' if lib.watch_error }}" title="{{ status_line }}">{{ status_line }}</span>{% if not cat.entries or cat.error %} <span class="bad">{{ cat.error or 'The BEQ catalogue is not loaded.' }}</span>{% endif %}</p>
-
-<nav class="views" aria-label="Library views">
-  {% set tone = {'candidates': 'n-good', 'stale': 'n-warn', 'review': 'n-act', 'errors': 'n-bad'} %}
-  {% for k, label in views.items() %}
-  <a href="/?show={{ k }}&q={{ q|urlencode }}" class="{{ tone[k] if counts[k] }}{{ ' on' if show == k }}"{% if show == k %} aria-current="page"{% endif %}><b>{{ counts[k] }}</b><span>{{ label }}</span></a>
-  {% endfor %}
-</nav>
-
-<section class="bar lib-filter">
-  <h2 class="lib-view">{{ views[show] }} <span class="muted">{{ total }}{% if q %} matching “{{ q }}”{% endif %}</span></h2>
-  {% if rows %}<p class="muted small">{% if show == 'candidates' and not q %}{{ candidate_summary }} {% endif %}{{ sorted_by }}</p>{% endif %}
-  <form method="get" action="/" class="inline">
-    <input type="hidden" name="show" value="{{ show }}">
-    <label class="chk">Search <input type="search" name="q" value="{{ q }}" placeholder="Title or path"></label>
-    {% if q and rows %}<a class="btn ghost" href="/?show={{ show }}">Clear search</a>{% endif %}
-  </form>
-</section>
-
-<table class="list library">
-  <colgroup><col class="c-film"><col class="c-assess"><col class="c-track"><col class="c-beq"><col class="c-job"><col class="c-act"></colgroup>
-  {% if rows %}<thead><tr><th>Film</th><th{% if show == 'errors' %} colspan="4"{% endif %}>Assessment</th>{% if show != 'errors' %}<th>Best track</th><th>BEQ track</th><th>Last job</th>{% endif %}<th>Action</th></tr></thead>{% endif %}
-  <tbody>
-  {% for r in rows %}
-    <tr onclick="event.target.closest('a, details') || (location='/media/{{ r.id }}')">
-      {% set note = file_note(r.path, r.title, r.year) %}
-      <td class="lead" title="{{ r.path }}"><a href="/media/{{ r.id }}">{{ film(r.title, r.year) or dash }}</a>
-        {% if r.tmdb or note %}<div class="muted small lib-file">{% if r.tmdb %}<span>{{ r.tmdb|tmdb }}</span>{% if note %} · {% endif %}{% endif %}{{ note }}</div>{% endif %}</td>
-      <td class="assess wide state" data-label="Assessment"{% if show == 'errors' %} colspan="4"{% endif %}>{% include "_assess.html" %}</td>
-      {% if show != 'errors' %}
-      <td data-label="Best track"{% if not r.best %} class="nil"{% endif %}>{% if r.best %}{{ r.best.label }}{% if r.has_beq and r.a and r.a.best and not r.a.best.supported %} <span class="tag" title="{{ r.a.best.reason|plain }}">Not supported</span>{% endif %}{% else %}{{ dash }}{% endif %}</td>
-      <td data-label="BEQ track"{% if not r.has_beq %} class="nil"{% endif %}>{% if r.has_beq %}{% set t = beq_track(r.beq|first or 'Present') %}<span title="{{ r.beq|join(', ') }}">{{ t.format }}</span>{% if t.source %}<div class="muted small">{{ t.source }}</div>{% endif %}{% else %}{{ dash }}{% endif %}</td>
-      <td data-label="Last job"{% if not r.job_status %} class="nil"{% endif %}>{% if r.job_status %}{{ status_badge(r.job_status) }}{% else %}{{ dash }}{% endif %}</td>
-      {% endif %}
-      <td class="row-act"><a class="btn ghost" href="/media/{{ r.id }}">Open</a></td>
-    </tr>
-  {% else %}
-    {% set empty_views = {
-      'candidates': ('No BEQ candidates right now.', 'Films show up here when the catalogue has a BEQ for them or the bass check finds roll-off.'),
-      'todo': ('Every film already has a BEQ track.', 'New films without one will show up here.'),
-      'stale': ('No stale BEQ tracks.', 'A track shows up here when the catalogue or this tool has changed since it was made.'),
-      'review': ('Nothing is ready for review.', 'A film shows up here when its job has found filters for you to look at.'),
-      'beq': ('No films have a BEQ track yet.', 'Open a BEQ candidate and run a job to add one.'),
-      'all': ('No films with audio found.', 'Films appear here once a scan finds audio in them.'),
-      'errors': ('No file errors.', 'Files that could not be read show up here.'),
-    } %}
-    <tr><td colspan="6" class="empty">
-      {% if q %}
-        <strong>No films match “{{ q }}” in {{ views[show] }}.</strong>
-        <a class="btn ghost" href="/?show={{ show }}">Clear search</a>
-        {% if show != 'all' %}<a class="btn ghost" href="/?show=all&q={{ q|urlencode }}">Search all films</a>{% endif %}
-      {% elif not counts.total %}
-        <strong>Your library is empty.</strong>
-        {% if scan.running %}Films appear here as the scan finds them.{% else %}Use Scan library to find the films in {% for r in roots %}<code>{{ r }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}
-      {% else %}
-        {% set msg = empty_views[show] %}
-        <strong>{{ msg[0] }}</strong>{{ msg[1] }}
-      {% endif %}
-    </td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-
-{% if pages > 1 %}
-<nav class="pager small">
-  {% if page > 1 %}<a href="/?show={{ show }}&q={{ q|urlencode }}&page={{ page - 1 }}">← previous</a>{% endif %}
-  <span class="muted">{{ (page - 1) * 200 + 1 }}–{{ [page * 200, total]|min }} of {{ total }}</span>
-  {% if page < pages %}<a href="/?show={{ show }}&q={{ q|urlencode }}&page={{ page + 1 }}">next →</a>{% endif %}
-</nav>
+{% if asked_add %}
+<p class="status">{% if added %}Adding a BEQ track to {{ added }} film{{ 's' if added != 1 }}. Each film's row shows its progress.{% endif %}
+  {% if skipped %}Skipped {{ skipped|join(', ') }}: no filter was made for its recommended track, or a BEQ track is already being added. Open the film to choose.{% endif %}</p>
 {% endif %}
+
+{# One area narrows the list: each row is a column of the list, named as the column is. #}
+<div class="filter-bar" role="search" aria-label="Narrow the list">
+  <div id="lib-chips">{% include "_library_chips.html" %}</div>
+  <p class="small muted bar-gloss">Candidate rating: {{ TERMS.rating[:1]|lower ~ TERMS.rating[1:] }}.</p>
+  <form method="get" action="/" class="menus" id="menus">
+    {% for k, xs in view.chosen.items() if k == 'rating' %}{% for x in xs %}<input type="hidden" name="rating" value="{{ x }}">{% endfor %}{% endfor %}
+    {% if view.sort != 'title' %}<input type="hidden" name="sort" value="{{ view.sort }}">{% endif %}
+    {% if view.desc %}<input type="hidden" name="dir" value="desc">{% endif %}
+    {% if view.per != 50 %}<input type="hidden" name="per" value="{{ view.per }}">{% endif %}
+    <span class="search-box"><label for="q" class="small muted">Search</label>
+      <input type="search" name="q" id="q" value="{{ view.q }}" placeholder="Titles, years and file names" autocomplete="off">
+    </span>
+    {% for key in menus %}
+    <label class="menu"><span class="small muted">{{ headings[key] }}</span>
+    <select name="{{ key }}" data-submit>
+      <option value="">Any</option>
+      {# Under its label each choice is short, so that a narrow menu shows it whole. #}
+      {% for v, (words, _) in filters[key].items() %}<option value="{{ v }}"{{ ' selected' if v in view.chosen.get(key, []) }}>{{ {'some': 'In progress' if key == 'activity' else 'Some', 'none': 'None'}.get(v, words) }}</option>{% endfor %}
+    </select></label>
+    {% endfor %}
+    <noscript><button class="ghost small">Apply</button></noscript>
+  </form>
+</div>
+
+<div id="lib-results">{% include "_library_results.html" %}</div>
+{% if status_line %}<p class="small muted" id="scan-status">{{ status_line }}</p>{% endif %}
 {% endblock %}
+
 {% block scripts %}
-{% if scan.running %}<script>setTimeout(() => location.reload(), 3000);</script>{% endif %}
 <script>
-async function libStatus() {
+// Menus and the sort select apply at once; the search box updates the list as you type.
+document.addEventListener('change', e => {
+  if (e.target.matches('select[data-submit]')) e.target.form.submit();
+  if (e.target.matches('#pick-all')) {
+    document.querySelectorAll('#bulk input[name=film]').forEach(b => { b.checked = e.target.checked; });
+  }
+  if (e.target.matches('#bulk input[name=film], #pick-all')) showPlan();
+});
+// What Add BEQ track to selected would do, before it does it: the count, and each film's filter.
+let planned = 0;
+async function showPlan() {
+  const picked = [...document.querySelectorAll('#bulk input[name=film]:checked')].map(b => b.value);
+  const n = picked.length, mine = ++planned;
+  document.getElementById('bulk-add').disabled = !n;
+  const count = document.getElementById('bulk-count');
+  if (count) count.textContent = n ? `${n} film${n === 1 ? '' : 's'} selected. Each gets:` : '';
+  document.getElementById('bulk-note').hidden = n > 0;
+  const list = document.getElementById('bulk-plan');
+  if (!n) { list.replaceChildren(); return; }
   try {
-    const s = await (await fetch('/api/library')).json();
-    const el = document.getElementById('lib-status');
-    el.className = s.watch_error ? 'bad' : '';
-    el.title = s.status_line;
-    if (el.textContent !== s.status_line) el.textContent = s.status_line;
+    const plan = await (await fetch(`/api/library/plan?${picked.map(id => `film=${id}`).join('&')}`)).json();
+    if (mine !== planned) return;
+    list.replaceChildren(...plan.films.map(f => {
+      const li = document.createElement('li');
+      li.textContent = f.why ? `${f.film}: skipped, because ${f.why}.`
+        : `${f.film}: a BEQ track from ${f.track}, with ${f.filter} · Low-end cutoff: ${f.cutoff}`
+          + (f.keeps ? `. It keeps the BEQ track${f.keeps === 1 ? '' : 's'} the film has.` : '');
+      return li;
+    }));
   } catch (e) {}
 }
-setInterval(libStatus, 8000);
+const search = document.getElementById('q');
+let pending, asked = 0;
+search.addEventListener('input', () => {
+  clearTimeout(pending);
+  pending = setTimeout(async () => {
+    const form = new URLSearchParams(new FormData(document.getElementById('menus')));
+    if (!form.get('q')) form.delete('q');
+    for (const [k, v] of [...form]) if (v === '') form.delete(k);
+    const mine = ++asked;
+    try {
+      const r = await (await fetch(`/?${form}&partial=1`)).json();
+      if (mine !== asked) return;
+      document.getElementById('lib-chips').innerHTML = r.chips;
+      document.getElementById('lib-results').innerHTML = r.results;
+      history.replaceState(null, '', r.query ? `/?${r.query}` : '/');
+    } catch (e) {}
+  }, 250);
+});
+search.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && search.value) { search.value = ''; search.dispatchEvent(new Event('input')); }
+});
 </script>
 {% endblock %}

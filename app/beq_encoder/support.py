@@ -56,7 +56,8 @@ class Plan:
     route: str = ""  # damf | joc | pcm
     label: str = ""  # what the BEQ track will be, e.g. "TrueHD Atmos", "TrueHD 5.1"
     native: bool = False
-    reason: str = ""  # why not, when not ok
+    reason: str = ""  # why not, when not ok, in the pipeline's words: for logs and messages
+    said: str = ""  # why not, as one plain sentence: what the screens show
 
 
 def plan(track: AudioTrack) -> Plan:
@@ -64,7 +65,9 @@ def plan(track: AudioTrack) -> Plan:
     if rate not in PCM_TRUEHD_RATES:
         return Plan(False, reason=(
             f"{track.label} at {rate / 1000:g} kHz: only 48 kHz is verified with DEE's "
-            "TrueHD encoder; resampling would lose data"))
+            "TrueHD encoder; resampling would lose data"), said=(
+            f"Its sample rate is {rate / 1000:g} kHz, and the app makes a BEQ track only "
+            "from 48 kHz audio, because changing the rate would lose audio."))
     if track.atmos:
         return Plan(True, "truehd", "damf", "TrueHD Atmos", native=True)
     if track.kind == "eac3_joc" and cavern_available():
@@ -74,21 +77,29 @@ def plan(track: AudioTrack) -> Plan:
             f"{track.kind_name}: its objects can't be carried into lossless TrueHD Atmos "
             f"without a lossy step, re-encoding to {track.kind_name} would itself be lossy, "
             f"and the {track.layout_label} bed alone would drop the objects; "
-            f"{LOSSY_OUT_OF_SCOPE}"))
+            f"{LOSSY_OUT_OF_SCOPE}"), said=(
+            f"The app can't make a BEQ track from {track.kind_name} without losing some of "
+            "its audio, and it makes only lossless BEQ tracks."))
     ch = int(track.channels or 0)
     if ch not in PCM_TRUEHD_CHANNELS:
         return Plan(False, reason=(
             f"{track.label}: TrueHD from PCM is made as 2.0, 5.1 or 7.1 only; another "
-            "layout would change the channels"))
+            "layout would change the channels"), said=(
+            f"It has {ch} channels, and the app makes a BEQ track only from 2.0, 5.1 or "
+            "7.1 audio."))
     if layouts.names(ch, track.layout) is None:
         return Plan(False, reason=(
             f"{track.label}: its channel layout is unknown; encoding it by position "
-            "would relabel its speakers"))
+            "would relabel its speakers"), said=(
+            "The file does not say which speaker each of its channels is for, so a BEQ "
+            "track could put them on the wrong speakers."))
     if track.layout not in PCM_TRUEHD_LAYOUTS[ch]:
         return Plan(False, reason=(
             f"{track.label} ({track.layout}): DEE's TrueHD encoder takes "
             f"{' or '.join(PCM_TRUEHD_LAYOUTS[ch])} for {ch} channels; this layout's "
-            "speakers would be relabelled"))
+            "speakers would be relabelled"), said=(
+            f"Its speaker layout is {track.layout}, which a BEQ track with {ch} channels "
+            "can't keep."))
     return Plan(True, "truehd", "pcm", f"TrueHD {track.layout_label}",
                 native=track.kind == "truehd")
 

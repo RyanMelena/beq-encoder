@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import threading
 import time
 from collections.abc import Callable
@@ -62,21 +63,30 @@ class Encoded:
 
 class Job:
     """The context every stage of one job is handed. Nothing here is assigned after
-    __init__; what a stage produces, it returns."""
+    __init__ (a `part` is a copy); what a stage produces, it returns."""
 
     def __init__(self, settings: Settings, job_id: int, path: str, params: dict,
-                 progress: ProgressCb, log_path: Path, catalogue=None):
+                 progress: ProgressCb, log_path: Path, catalogue=None,
+                 work: Path | None = None, tmp_mkv: Path | None = None):
         self.s = settings
         self.id = job_id
         self.src = Path(path)
         self.params = params
         self.progress = progress
         self.catalogue = catalogue
-        self.work = settings.work_dir / f"job-{job_id}"
-        self.tmp_mkv = temp_mkv(self.src, job_id)
+        self.work = work or settings.work_dir / f"job-{job_id}"
+        self.tmp_mkv = tmp_mkv or temp_mkv(self.src, job_id)
         self._log_path = log_path
         self._log_lock = threading.Lock()
         self.procs = Processes(self.log)
+
+    def part(self, work: Path, label: str) -> Job:
+        """This job doing one of several like parts (a clip's BEQ tracks): its files in
+        `work`, its stages named with `label`; the same source, log, processes and cancel."""
+        sub = copy.copy(self)
+        sub.work = work
+        sub.progress = lambda stage, pct: self.progress(f"{label}: {stage}", pct)
+        return sub
 
     def log(self, msg: str) -> None:
         with self._log_lock, open(self._log_path, "a") as fh:

@@ -53,3 +53,27 @@ def test_only_filters_the_analysis_can_represent_are_estimated():
         "unknown_type": [{**SHELF, "type": "Notch"}],
     })
     assert set(got) == {"shelf"}
+
+
+def test_the_estimate_includes_the_floor_as_the_filter_pass_does():
+    """A shelf that lifts infrasonic content: the floor removes what it lifted below the
+    corner, and the estimate made with the floor is the peak the pass with it measures."""
+    fs = analysis.FS
+    t = np.arange(60 * fs) / fs
+    x = np.stack([0.2 * np.sin(2 * np.pi * 6 * t) + 0.2 * np.sin(2 * np.pi * 45 * t),
+                  0.1 * np.sin(2 * np.pi * 45 * t)], axis=1)
+    shelf = {"type": "LowShelf", "freq": 20.0, "gain": 12.0, "q": 0.7}
+
+    def blocks():
+        return (x[i:i + 4096] for i in range(0, len(x), 4096))
+
+    bare = preflight.predict(blocks(), ["L", "LFE"], {"s": [shelf]})["s"]
+    floored = preflight.predict(blocks(), ["L", "LFE"], {"s": [shelf]}, 15.0)["s"]
+    assert floored["peak_dbfs"] < bare["peak_dbfs"] - 3
+
+    def read(_stage):
+        return blocks()
+
+    real = beqfilter.filter_stream(read, lambda _y: 0,
+                                   design_sos([FilterSpec(**shelf)], fs, 15.0), 2, -1.0)
+    assert floored["peak_dbfs"] == pytest.approx(beqfilter.dbfs(real.peak_filtered), abs=0.01)

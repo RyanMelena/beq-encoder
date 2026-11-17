@@ -25,7 +25,7 @@ The start-up scan and the scheduled scan find those files.
 ## Assessment
 
 The encoder assesses every file, and assesses it again when the catalogue, the designer, or the file changes.
-The library page groups the results into views.
+The Library shows each film's candidate rating, its number of filters and BEQ tracks, and its activity, and you sort and filter on each.
 
 ### BEQ candidates
 
@@ -54,3 +54,7 @@ The encoder judges a BEQ track from the tags of the track. A BEQ track is stale 
 - The designer now produces a different design version.
 - An encoder revision with better output has replaced the revision that made it.
 - A better output is now possible, such as TrueHD where only a test FLAC exists.
+
+A [high-pass floor](how-it-works.md#the-high-pass-floor) never makes a track stale.
+The encoder records the floor beside the filter, not in it, so it judges a track with a floor by its catalogue entry or its design, as it judges any other track.
+A change to `BEQ_HIGHPASS_HZ` leaves the tracks already made alone. The film page names the floor of each BEQ track.

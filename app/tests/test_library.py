@@ -64,6 +64,10 @@ def test_unsupported_best_track_is_never_a_candidate(cat):
     a = assess.assess(_probe(_t(1, "dtsx", 8, layout="7.1")), FILM, cat,
                       rolloff_info={"verdict": "clear"})
     assert a["best"]["supported"] is False and a["candidate"] is None
+    assert "usable_instead" not in a
+    a = assess.assess(_probe(_t(1, "dtsx", 8, layout="7.1"), _t(2, "ac3", 6, layout="5.1(side)")),
+                      FILM, cat)
+    assert a["candidate"] is None and a["usable_instead"]["track_id"] == 2
 
 
 # -- stale BEQ tracks ---------------------------------------------------------------
@@ -84,9 +88,20 @@ def test_withdrawn_or_updated_catalogue_entry_is_stale(cat):
     assert "changed or been withdrawn" in a["reasons"][0]
 
 
-def test_designed_beq_is_stale_once_the_catalogue_has_the_track(cat):
+def test_a_floor_neither_makes_a_track_stale_nor_hides_a_changed_entry(cat):
+    """The floor is the listener's own, recorded beside the catalogue's digest and bands, so
+    a track with one is judged by its catalogue entry as any other."""
+    floored = {"highpass_hz": "15", "highpass_order": "4"}
+    a = _stale(cat, _beq(**floored))
+    assert not a["stale"] and a["beq"][0]["reasons"] == []
+    a = _stale(cat, _beq(digest="gone", **floored))
+    assert a["stale"] and "has been updated" in a["reasons"][0]
+
+
+def test_a_catalogue_filter_appearing_does_not_make_a_designed_beq_stale(cat):
     a = _stale(cat, _beq(source="designer", digest="design:1", design_version="9"))
-    assert a["stale"] and "catalogue now has 1 entry" in a["reasons"][0]
+    assert not a["stale"] and a["reasons"] == []
+    assert a["beq"][0]["catalogue_also"] == 1
 
 
 def test_designed_beq_is_stale_when_the_designer_answers_differently(cat):
@@ -232,6 +247,16 @@ def test_assessment_waits_for_the_catalogue_and_runs_when_it_loads(lib_env):
     row = _wait(lambda: _row(db, media_id), 15)
     assert row is not None and not row["stale"]
     assert json.loads(row["assess_json"])["catalogue"] == "exact"
+
+
+def test_a_reassessment_refreshes_the_best_track_of_files_not_rescanned(lib_env):
+    """A change to how the best track is picked reaches files scanned before it."""
+    _, db, lib, _ = lib_env
+    media_id = _add_film(db, _t(1, "truehd_atmos", 8, forced=True, **ATMOS), has_audio=0,
+                         best_json=None, title=FILM["title"], year=FILM["year"])
+    assert lib.reassess([media_id]) == 1
+    row = _row(db, media_id)
+    assert row["has_audio"] == 1 and json.loads(row["best_json"])["track_id"] == 1
 
 
 def test_a_designer_appearing_or_changing_reassesses(lib_env):
@@ -693,12 +718,12 @@ def test_a_job_that_cannot_get_a_thread_goes_back_in_the_queue(job_env, monkeypa
     assert refused == [f"job-{job_id}"]
 
 
-def test_a_prepared_job_whose_log_cannot_be_written_is_still_ready_for_review(job_env):
+def test_a_measurement_whose_log_cannot_be_written_still_ends(job_env):
     q, db, plan = job_env
-    plan["run"] = lambda: {"phase": "prepare", "outcome": "awaiting", "message": "pick one"}
-    job_id = db.create_job(None, "/media/a.mkv", {"phase": "prepare"})
+    plan["run"] = lambda: {"phase": "measure", "levels": {"0": {"a": {"peak_dbfs": -3.0}}}}
+    job_id = db.create_job(None, "/media/a.mkv", {"phase": "measure"})
     q.start()
-    assert _wait(lambda: _job_status(db, job_id) == "awaiting" and not q.running, 15)
+    assert _wait(lambda: _job_status(db, job_id) == "done" and not q.running, 15)
 
 
 def test_a_final_status_the_database_refused_is_written_when_it_recovers(job_env, monkeypatch):

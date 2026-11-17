@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% import "_work.html" as work %}
+{% block title %}Activity · BEQ Encoder{% endblock %}
+{% block body %}
+<h1>Activity</h1>
+{% if not groups|map(attribute=1)|select|list %}<p class="empty">Nothing yet. Work that the app does for a film shows here.</p>{% else %}
+<nav class="act-jump" aria-label="Groups">
+  <span class="muted">On this page</span>
+  {% for name, works in groups %}
+  {% if works %}<a href="#{{ name|lower }}"{% if name == 'Failed' %} class="bad"{% endif %}>{{ name }} ({{ works|length }})</a>{% else %}<span class="muted">{{ name }} (0)</span>{% endif %}
+  {% endfor %}
+</nav>
+{% endif %}
+{# Work that is under way, or that failed and still stands: what it is, how far along, where
+   its result will show, and what to do. #}
+{% macro row(w) %}
+    <li id="{{ w.ref }}">
+      <div class="act-head">
+        <span class="act-what"><b>{{ w.what }}</b> · {% if w.media_id %}<a href="{{ w.href }}">{{ w.film }}</a>{% else %}{{ w.film }}{% endif %}</span>
+        <span class="act-state">{{ work.badge(w) }}</span>
+        <span class="act-when muted small">{{ w.when }}</span>
+        <span class="act-do">{% if w.active %}{{ work.cancel(w) }}{% endif %}</span>
+      </div>
+      {{ work.progress(w) }}
+      {% if w.result %}<p class="small">{{ w.result }}</p>{% endif %}
+      {{ work.using(w) }}
+      {% if w.active and w.media_id %}<p class="small muted">{{ w.lands("the film's page") }}</p>{% endif %}
+      {% if w.failure and w.media_id %}{{ work.hint(w) }}<div class="actions">{{ work.fix(w) }}</div>{% endif %}
+      {{ work.technical(w) }}
+    </li>
+{% endmacro %}
+{# Work that has ended: one line, with the same fields in the same place on every row. How it
+   ended holds the badge alone. Result holds the figure or the link the work left, or why it
+   ended so. The audio track and the filter share a column, so two rows for one film can be
+   told apart. #}
+{% macro ended(works) %}
+  <div class="act-ended" role="table" aria-label="Finished work">
+    <div class="act-cols small muted" role="row"><span role="columnheader">Work</span><span role="columnheader">Film</span><span role="columnheader">How it ended</span><span role="columnheader">Result</span><span role="columnheader">Audio track and filter</span><span role="columnheader">Ended</span><span role="columnheader"><span class="sr-only">Details</span></span></div>
+    {% for w in works %}
+    {% set used = dict(w.using) %}
+    <div class="act-row" role="row" id="{{ w.ref }}">
+      <span role="cell" class="act-what"><b>{{ w.what }}</b></span>
+      <span role="cell" data-label="Film">{% if w.media_id %}<a href="{{ w.href }}">{{ w.film }}</a>{% else %}{{ w.film }}{% endif %}</span>
+      <span role="cell" data-label="How it ended"><span class="v">{{ work.badge(w) }}</span></span>
+      <span role="cell" data-label="Result"><span class="v">{% if w.outcome == 'clip' %}<a href="/clips/{{ w.id }}/file" download>Download the BEQ clip</a>{% else %}{{ w.brief or dash }}{% endif %}</span></span>
+      <span role="cell" data-label="Audio track and filter"><span class="v">{% set names = used.get('Filter') or used.get('Filters') %}{{ used.get('Audio track') or dash }}{% if names %}<br>{{ names }}{% if w.cutoff_hz %}, at a low-end cutoff of {{ w.cutoff_hz|cutoff }}{% endif %}{% endif %}</span></span>
+      <span role="cell" data-label="Ended" class="act-when">{{ w.when }}</span>
+      <div role="cell" class="act-more">{{ work.technical(w) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+{% endmacro %}
+{% for name, works in groups if works %}
+<section class="act-group" id="{{ name|lower }}">
+  <h2>{{ name }} ({{ works|length }})</h2>
+  {% if name != 'Finished' %}
+  <ul class="activity">
+    {% for w in works %}{{ row(w) }}{% endfor %}
+  </ul>
+  {% else %}
+  {# Measuring is the app's own business, so its rows sit folded under the work the user asked for. #}
+  {% set own = works|selectattr('kind', 'equalto', 'measure')|list %}
+  {% set asked = works|rejectattr('kind', 'equalto', 'measure')|list %}
+  {% if asked %}{{ ended(asked) }}{% endif %}
+  {% if own %}
+  <details class="act-own"><summary>Measuring level changes, which the app does by itself ({{ own|length }})</summary>
+    {{ ended(own) }}
+  </details>
+  {% endif %}
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+{% set live = groups|selectattr(0, 'in', ['Running', 'Queued'])|map(attribute=1)|sum(start=[]) %}
+{% if live %}<script>
+const refs = {{ live|map(attribute='ref')|list|tojson }};
+setInterval(async () => {
+  try {
+    const n = await (await fetch('/api/activity')).json();
+    if (n.running + n.queued !== refs.length) location.reload();
+  } catch (e) {}
+}, 5000);
+</script>{% endif %}
+{% endblock %}

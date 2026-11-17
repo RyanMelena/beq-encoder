@@ -174,3 +174,89 @@ def test_threaded_filter_is_identical_to_sosfilt():
     b1, zb = sosfilt_channels(sos, x[:20000], zi)
     b2, _ = sosfilt_channels(sos, x[20000:], zb)
     assert np.array_equal(a1, b1) and np.array_equal(a2, b2) and np.array_equal(za, zb)
+
+
+# -- the high-pass floor -------------------------------------------------------------------
+@pytest.mark.parametrize("hz,fs", [(15.0, 48000.0), (10.0, 96000.0), (20.0, 1000.0)])
+def test_the_floor_is_a_4th_order_butterworth(hz, fs):
+    from scipy.signal import butter, sosfreqz
+
+    from beq_encoder.biquad import highpass_rows
+    rows = np.asarray(highpass_rows(hz, fs))
+    assert rows.shape == (2, 6)
+    f = np.array([hz / 4, hz / 2, hz, 2 * hz, 4 * hz, 100.0])
+    _, mine = sosfreqz(rows, worN=f, fs=fs)
+    _, ref = sosfreqz(butter(4, hz, "highpass", fs=fs, output="sos"), worN=f, fs=fs)
+    assert 20 * np.log10(np.abs(mine)) == pytest.approx(20 * np.log10(np.abs(ref)), abs=1e-6)
+    # -3 dB at the corner, 24 dB/octave below it, flat above
+    db = 20 * np.log10(np.abs(mine))
+    assert db[2] == pytest.approx(-3.01, abs=0.01)
+    assert db[0] - db[1] == pytest.approx(-24, abs=0.6)
+    assert abs(db[5]) < 0.01
+
+
+def test_the_floor_follows_the_beq_in_one_cascade():
+    from beq_encoder.biquad import highpass_rows, response_db
+    assert design_sos(FILTERS, 48000.0, 0.0).shape == (5, 6)  # none: the BEQ alone
+    sos = design_sos(FILTERS, 48000.0, 15.0)
+    assert sos.shape == (7, 6)
+    assert np.array_equal(sos[:5], design_sos(FILTERS, 48000.0))
+    assert np.array_equal(sos[5:], np.asarray(highpass_rows(15.0, 48000.0)))
+    assert FilterJob(FILTERS, highpass_hz=15.0).sos(48000.0).tolist() == sos.tolist()
+    f = np.array([5.0, 15.0, 60.0])
+    with_floor = response_db(FILTERS, f, 48000.0, 15.0)
+    beq = response_db(FILTERS, f, 48000.0)
+    assert with_floor[2] == pytest.approx(beq[2], abs=0.01)
+    assert with_floor[1] == pytest.approx(beq[1] - 3.01, abs=0.01)
+    assert with_floor[0] < beq[0] - 30
+    # a floor alone (no BEQ bands with gain) is still the floor
+    assert design_sos([], 48000.0, 15.0).shape == (2, 6)
+
+
+@pytest.mark.parametrize("hz,ok", [(0, True), (0.0, True), (15, True), (40, True), (12.5, True),
+                                   (-1, False), (40.1, False), (float("nan"), False),
+                                   (float("inf"), False), ("abc", False)])
+def test_a_floor_is_0_or_up_to_40_hz(hz, ok):
+    from beq_encoder.biquad import check_highpass
+    if ok:
+        assert check_highpass(hz) == float(hz)
+    else:
+        with pytest.raises(ValueError):
+            check_highpass(hz)
+
+
+def test_the_filter_pass_applies_the_floor_and_fits_the_target_with_it(tmp_path):
+    """Infrasonic content a shelf lifts sets the gain without a floor; with one, the gain
+    is set by what is left, so the track is turned down less."""
+    fs, n = 48000, 4 * 48000
+    t = np.arange(n) / fs
+    x = np.stack([0.3 * np.sin(2 * np.pi * 6 * t) + 0.3 * np.sin(2 * np.pi * 50 * t)] * 2, axis=1)
+    shelf = [FilterSpec("LowShelf", 20.0, 12.0, 0.7)]
+    reports = {}
+    for hz in (0.0, 15.0):
+        p = tmp_path / f"f{hz:g}.caf"
+        write_caf(p, x)
+        info = caf.read_info(str(p))
+        with open(p, "rb") as fh:
+            fh.seek(info.data_offset)
+            src = caf.decode(info, fh.read(info.data_bytes))
+        reports[hz] = rep = apply(str(p), FilterJob(shelf, -10.0, highpass_hz=hz))
+        with open(p, "rb") as fh:
+            fh.seek(info.data_offset)
+            out = caf.decode(info, fh.read(info.data_bytes))
+        exp = sosfilt(design_sos(shelf, 48000.0, hz), src, axis=0) * rep.gain
+        assert np.abs(out - exp).max() <= 2.01 / 2**23
+        assert rep.peak_out_dbfs == pytest.approx(-10.0, abs=0.01)
+    assert reports[15.0].gain_db > reports[0.0].gain_db + 3
+
+
+def test_a_filter_json_names_its_floor(tmp_path):
+    p = tmp_path / "f.json"
+    p.write_text('{"filters": [{"type": "LowShelf", "freq": 20, "gain": 6, "q": 0.7}], '
+                 '"highpass_hz": 12}')
+    assert FilterJob.load(str(p)).highpass_hz == 12.0
+    p.write_text('{"filters": []}')
+    assert FilterJob.load(str(p)).highpass_hz == 0.0
+    p.write_text('{"filters": [], "highpass_hz": 90}')
+    with pytest.raises(ValueError):
+        FilterJob.load(str(p))

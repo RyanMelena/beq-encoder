@@ -1,0 +1,395 @@
+{% extends "base.html" %}
+{% import "_work.html" as work %}
+{% import "_filters.html" as cmp %}
+{% set add = d.output == 'add' %}
+{% set heading = ('Add a BEQ track to ' if add else 'Make a BEQ clip of ') ~ f.name %}
+{% block title %}{{ heading }} · BEQ Encoder{% endblock %}
+{% block body %}
+<p class="crumb"><a href="/">Library</a> / <a href="/films/{{ f.id }}">{{ f.name }}</a> / <span aria-current="page">{{ 'Add BEQ track' if add else 'Make a BEQ clip' }}</span></p>
+<h1>{{ heading }}</h1>
+<p><a href="/films/{{ f.id }}/{{ 'clip' if add else 'add' }}?step={{ d.step }}">{{ 'Make a BEQ clip instead' if add else 'Add a BEQ track instead' }}</a></p>
+
+{% if not track %}
+<p>No audio track in this film can get a BEQ track. <a href="/films/{{ f.id }}#tracks">The film's audio tracks</a> say why.</p>
+{% else %}
+
+{# The Options step opens once the film has a filter to choose. #}
+{% set listed = made or others %}
+
+{% macro summary(s) -%}
+{% if s == 'track' %}{{ track.name }}
+{% elif s == 'filter' %}
+  {% if chosen %}{{ chosen|map(attribute='name')|join(', ') }} · Low-end cutoff: {{ d.cutoff|cutoff }}{% else %}No filter chosen yet{% endif %}
+{% elif not listed %}Opens once this film has a filter
+{% elif add %}{{ (formats|selectattr(0, 'equalto', format)|first or ['', 'No output format'])[1] }} · Players start with {{ 'the BEQ track' if d.default_flag else 'the track they do now' }}{% if f.beq_tracks %} · {{ 'Replaces' if d.replace else 'Keeps' }} the BEQ track in the file{% endif %}
+{% else %}{{ ('Starts at ' ~ d.start) if d.start else 'Starts at the heaviest bass passage' }} · lasts {{ seconds }} seconds
+{% endif %}
+{%- endmacro %}
+
+{# A group of filters side by side: one row each under the same headings, and one chart that
+   draws them together. `made_for`: each row says under its name what the filter was made for. #}
+{% macro table(group, chart, made_for) %}
+<div class="compare">
+  <table class="cmp choose">
+    {{ cmp.head(pick=true, forge=forge) }}
+    {% for x in group %}
+    {% set id = 'f-' ~ x.digest|replace(':', '-') %}
+    <tbody class="filter{{ ' in-use' if x.in_use }}">
+    <tr>
+      <td class="pick">
+        {% if add %}<input type="radio" name="filter" id="{{ id }}" value="{{ x.digest }}"{{ ' checked' if x.digest == d.digest }}>
+        {% else %}<input type="checkbox" name="filters" id="{{ id }}" value="{{ x.digest }}"{{ ' checked' if x.digest in d.digests }}>{% endif %}
+      </td>
+      <td class="cmp-name"><label for="{{ id }}">{{ cmp.name(x, numbers[x.digest]) }}</label>{% for l in x.labels %} <span class="tag">{{ l }}</span>{% endfor %}
+        {% if add and preselected_why and preselected and x.digest == preselected.digest %}<div class="small">Preselected, because {{ preselected_why }}.</div>{% endif %}
+        {{ cmp.about(x, made_for, same) }}
+      </td>
+      <td data-label="Bass restored"><span class="v bass" data-digest="{{ x.digest }}">{{ bass[x.digest][ck] or '—' }}</span></td>
+      <td data-label="Level change">{{ cmp.level(levels[x.digest][ck], x.digest) }}</td>
+      {% if forge %}<td data-label="BEQ Forge's confidence"><span class="v">{{ x.sure or '—' }}</span></td>{% endif %}
+    </tr>
+    </tbody>
+    {% endfor %}
+  </table>
+  <div class="filter-curve">{{ chart|safe }}</div>
+</div>
+{% endmacro %}
+
+<ol class="wizard">
+{% set at = steps.index(d.step) %}
+{% for s in steps %}
+{% set reach = loop.index0 < at %}
+{% set href = '/films/' ~ f.id ~ '/' ~ d.output ~ '?step=' ~ s ~ '#' ~ s %}
+<li class="step{{ ' open' if s == d.step }}" id="{{ s }}">
+  <h2><span class="step-n">{{ loop.index }}.</span> {{ step_names[s] }}</h2>
+  {% if s != d.step %}
+  <p class="summary">{{ summary(s) }}{% if reach %} <a href="{{ href }}">Change</a>{% endif %}</p>
+
+  {% elif s == 'track' %}
+  <form method="get" action="/films/{{ f.id }}/{{ d.output }}#filter">
+    <fieldset><legend>Audio track</legend>
+    {% for t in f.sources %}
+      <label class="pick"><input type="radio" name="track" value="{{ t.id }}"{{ ' checked' if t.id == track.id }}>
+        <span><b>{{ t.name }}</b>{% if t.default %} <span class="tag">Recommended{{ BEST_LOSSY if t.lossy }}</span>{% elif t.lossy %} <span class="tag">Lossy</span>{% endif %}<br>
+        <span class="small muted">Bass check: {{ (t.bass[:1]|lower ~ t.bass[1:]) if t.bass else 'not run on this track' }}. {% if t.beqs %}The file has {{ 'a BEQ track' if t.beqs|length == 1 else t.beqs|length ~ ' BEQ tracks' }} made from it. {% endif %}Its BEQ track would be {{ t.gets }}.</span></span></label>
+    {% endfor %}
+    </fieldset>
+    {% if f.sources|length > 1 %}<p class="small muted">The bass check reads the recommended track alone.</p>{% endif %}
+    {% if f.sources|selectattr('lossy')|list %}<p class="small muted">{{ TERMS.lossy }}</p>{% endif %}
+    {% if f.cannot %}
+    <details class="small"><summary>Tracks that can't get a BEQ track ({{ f.cannot|length }})</summary>
+      <ul>{% for t in f.cannot %}<li>{{ t.name }}: {{ t.why_not }}</li>{% endfor %}</ul></details>
+    {% endif %}
+    <p class="actions"><button name="step" value="filter">{{ next.track }}</button> <a href="/films/{{ f.id }}">Cancel</a></p>
+  </form>
+
+  {% elif s == 'filter' %}
+  <form method="get" action="/films/{{ f.id }}/{{ d.output }}#options" id="filter-form">
+    {% if listed %}
+    <p class="small" id="measuring-note"{{ ' hidden' if not measuring }}>Measuring level changes takes {{ measure_takes }}. You can continue now, and each figure fills in when it is ready.</p>
+    {{ cmp.notes(forge) }}
+    {% endif %}
+    {% if not add %}<input type="hidden" name="filters" value="">{% if listed %}<p class="small">Tick up to {{ clip_max }} filters. The BEQ clip holds the original track and one BEQ track for each, and you compare them by switching tracks in your player.</p>{% endif %}{% endif %}
+    {% if made %}
+    {{ table(made, charts[0], false) }}
+    {% elif not designing %}
+    <p>No filter has been made for {{ track.name }} yet.{% if gap[1] and f.gap not in ('open', 'designing') %} {{ gap[1] }}{% endif %}</p>
+    {% endif %}
+    {% if others %}
+    <details class="more"{{ ' open' if not made or (d.chosen and d.chosen[0] in others|map(attribute='digest')|list) }}>
+      <summary>Made for another track or another mix of this film ({{ others|length }})</summary>
+      <p class="small muted">The BEQ Catalogue lists these for another mix of this film. They may not suit {{ track.name }}.</p>
+      {{ table(others, charts[1], true) }}
+    </details>
+    {% endif %}
+    {% if listed %}
+    {# One control, the same as on the Settings page: a list of cutoffs whose last entry takes any value. #}
+    <div class="cutoff" id="cutoff-set" role="group" aria-labelledby="cutoff-name">
+      <div class="cutoff-modes">
+        <label id="cutoff-name" for="cutoff"><b>Low-end cutoff</b></label>
+        <select name="cutoff" id="cutoff">
+          {% for hz in presets %}<option value="{{ '%g'|format(hz) }}"{{ ' selected' if hz == d.cutoff and not custom }}>{{ hz|cutoff }}{{ ' (your default)' if hz == cutoff_default }}</option>{% endfor %}
+          <option value="custom"{{ ' selected' if custom }}>Custom…</option>
+        </select>
+        <span class="custom-cutoff" id="custom-wrap"{{ ' hidden' if not custom }}><input type="number" name="custom_hz" id="cutoff-custom" min="0" max="{{ '%g'|format(cutoff_max) }}" step="0.5" value="{{ ck if custom }}" aria-label="Custom cutoff in Hz"{{ ' disabled' if not custom }}> Hz</span>
+        <span class="small muted">Off, or up to {{ '%g'|format(cutoff_max) }} Hz</span>
+        <noscript><button class="ghost small" name="step" value="filter">Show the figures at this cutoff</button></noscript>
+      </div>
+      <p class="small muted">{{ TERMS.cutoff }} Each filter's figures and curve above follow it.</p>
+      <p class="small muted" id="custom-note"{{ ' hidden' if not custom }}>The level change at a custom cutoff is measured when you set it. Once the track has been read, that takes a few seconds.</p>
+    </div>
+    <p class="actions"><button name="step" value="options">{{ next.filter }}</button> <a href="/films/{{ f.id }}">Cancel</a></p>{% endif %}
+  </form>
+
+  <div class="forge" id="forge">
+  {% if designing %}
+    {# The way back sits apart from Cancel the design, which throws the work away. #}
+    <div id="{{ designing.ref }}" class="designing">
+      <p><b>BEQ Forge is designing a filter for this track.</b></p>
+      {{ work.progress(designing) }}
+      {% if listed %}
+      <p class="small">The new filter joins the filters above when it is ready. You can also choose one of them now.</p>
+      <div class="wait-actions"><span class="work-cancel">{{ work.cancel(designing, 'Cancel the design') }}</span></div>
+      {% else %}
+      <p>When the filter is ready, it shows here in this step, with its curve, its bass restored and its level change, and the Continue to options button under it. The page updates by itself.</p>
+      <p class="small muted">You can leave. The filter also joins Filters on <a href="/films/{{ f.id }}">the page of {{ f.name }}</a>, and <a href="/activity#{{ designing.ref }}">the Activity log</a> shows the progress.</p>
+      <div class="wait-actions"><span class="work-cancel">{{ work.cancel(designing, 'Cancel the design') }}</span></div>
+      {% endif %}
+    </div>
+  {% else %}
+    <form method="post" action="/films/{{ f.id }}/design">
+      <input type="hidden" name="track" value="{{ track.id }}"><input type="hidden" name="output" value="{{ d.output }}">
+      {% if not listed %}
+      <p>BEQ Forge can design a filter for this track{{ ' again' if f.gap == 'declined' }}, which takes {{ design_takes }}. When the filter is ready, this step shows it with its curve, and you continue from here. You can leave while BEQ Forge works.</p>
+      <p class="actions"><button>Design a filter</button> <a href="/films/{{ f.id }}">Cancel</a></p>
+      {% else %}
+      <details><summary>Design a filter with BEQ Forge</summary>
+        <p>Design a filter for this track, which takes {{ design_takes }}. You can choose a filter here meanwhile, and the new one joins the filters above when it is ready.</p>
+        <button class="ghost">Design a filter</button>
+      </details>
+      {% endif %}
+    </form>
+  {% endif %}
+  </div>
+
+  {% else %}
+  <form method="post" action="/films/{{ f.id }}/{{ d.output }}">
+    <input type="hidden" name="options" value="1">
+    {% if add %}
+    <dl class="kv">
+      <dt>Output format</dt>
+      <dd>{% if formats|length > 1 %}<select name="format" aria-label="Output format">{% for v, label in formats %}<option value="{{ v }}"{{ ' selected' if v == format }}>{{ label }}</option>{% endfor %}</select>
+          {% elif formats %}{{ formats[0][1] }}<input type="hidden" name="format" value="{{ formats[0][0] }}">{% else %}<span class="warn-text">None available now: the encoder is not ready.</span>{% endif %}</dd>
+      <dt>Level change</dt>
+      <dd>{% if chosen %}{{ cmp.level(levels[chosen[0].digest][ck], chosen[0].digest) }}{% endif %}<br><span class="small muted">{{ TERMS.level }}.</span></dd>
+    </dl>
+    <p><label class="chk"><input type="checkbox" name="default_flag"{{ ' checked' if d.default_flag }}> Make players start with the BEQ track</label><br>
+      <span class="small muted">Unticked, players start with the track they do now, and you choose the BEQ track in the audio menu.</span></p>
+    {% if f.beq_tracks %}
+    <p><label class="chk"><input type="checkbox" name="replace"{{ ' checked' if d.replace }}> Replace the BEQ track already in the file ({{ f.beq_tracks|map(attribute='name')|join(', ') }})</label><br>
+      <span class="small muted">Untick to keep both BEQ tracks.</span></p>
+    {% endif %}
+    <p>Adding a BEQ track changes the film file. The original track stays in it, and the file changes only when the new track has passed its checks. The work takes {{ encode_takes }}, and you can leave the page.</p>
+    {% if adding %}<p class="warn-text">A BEQ track is being added to this film now, so another can't start yet. Your choices are kept for when it ends.</p>
+    {% elif not chosen %}<p class="warn-text">No filter is chosen yet. <a href="/films/{{ f.id }}/add?step=filter#filter">Choose a filter</a> first.</p>{% endif %}
+    <p class="actions"><button{{ ' disabled' if not chosen or not formats or adding }}>Add BEQ track</button> <a href="/films/{{ f.id }}">Cancel</a></p>
+    {% else %}
+    {% if clip_problem %}<p class="warn-text">BEQ clips are off: {{ clip_problem }}</p>{% endif %}
+    <p class="clip-window"><label for="start">Clip starts at</label>
+      <input id="start" name="start" value="{{ d.start or heaviest }}"{% if not heaviest %} placeholder="0:00:00"{% endif %} inputmode="numeric" size="8" aria-describedby="start-help">
+      <span class="small muted">h:mm:ss</span>
+      <label for="seconds">and lasts</label>
+      <input id="seconds" name="seconds" type="number" min="{{ '%g'|format(seconds_range[0]) }}" max="{{ '%g'|format(seconds_range[1]) }}" value="{{ seconds }}" size="4">
+      seconds</p>
+    <p class="small recommend" id="start-help">
+      <span>{% if heaviest %}Recommended: from <b id="rec-start">{{ heaviest }}</b>, the heaviest bass passage for a clip this long.{% else %}Recommended: leave the start empty, and the app starts the clip where the filters add the most bass.{% endif %}</span>
+      <button type="button" class="ghost small" id="use-rec"{{ ' hidden' if not d.start or d.start == heaviest }}>Use the recommendation</button></p>
+    {% if profile_svg %}
+    <figure class="profile-chart">
+      <div class="profile-scroll" id="profile-scroll"><div class="profile-wide">
+        <div class="profile-track" id="profile" data-running="{{ '%g'|format(running_s) }}">
+          {{ profile_svg|safe }}
+          <div class="rec-mark" id="rec-mark" title="Recommended"></div>
+          <div class="clip-box" id="clip-box" role="slider" tabindex="0" aria-label="Clip window"
+               aria-valuemin="0" aria-valuemax="{{ '%g'|format(running_s) }}"></div>
+        </div>
+        <div class="profile-axis" aria-hidden="true">{% for at, label in time_ticks %}<span style="left:{{ at|round(2) }}%">{{ label }}</span>{% endfor %}</div>
+      </div></div>
+      <figcaption class="small muted">Bass over the running time, marked in h:mm:ss. The labelled box is the clip, and the dashed outline is the recommendation. Drag the box, or click where the clip should start. The arrow keys move it by 10 seconds.</figcaption>
+    </figure>
+    {% endif %}
+    <p>Clip folder: <span class="path">{{ clip_folder }}</span></p>
+    <p>Making a BEQ clip does not change the film file. Each BEQ track in the clip plays at the level that the full BEQ track would get. The work takes {{ clip_takes }}.</p>
+    {% if not chosen %}<p class="warn-text">No filter is chosen yet. <a href="/films/{{ f.id }}/clip?step=filter#filter">Choose the filters</a> first.</p>{% endif %}
+    <p class="actions"><button{{ ' disabled' if clip_problem or not chosen }}>Make BEQ clip</button> <a href="/films/{{ f.id }}">Cancel</a></p>
+    {% endif %}
+  </form>
+  {% endif %}
+</li>
+{% endfor %}
+</ol>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if track %}
+<script>
+const film = {{ f.id }}, track = {{ track.id }}, max = {{ clip_max }};
+let levels = {{ levels|tojson }};
+const bass = {{ bass|tojson }};
+const cutoffBox = document.getElementById('cutoff');
+const customBox = document.getElementById('cutoff-custom');
+const isCustom = () => cutoffBox && cutoffBox.value === 'custom';
+const key = () => isCustom() ? (customBox.value === '' ? {{ ck|tojson }} : String(+customBox.value)) : cutoffBox ? cutoffBox.value : {{ ck|tojson }};
+function save(fields) {
+  fetch(`/films/${film}/draft`, {method: 'POST', body: new URLSearchParams(fields)}).catch(() => {});
+}
+function show() {
+  const k = key();
+  document.querySelectorAll('polyline[data-cutoff]').forEach(p => p.toggleAttribute('hidden', p.dataset.cutoff !== k));
+  document.querySelectorAll('.bass[data-digest]').forEach(e => { e.textContent = bass[e.dataset.digest][k] || '—'; });
+  document.querySelectorAll('.level[data-digest]').forEach(e => {
+    e.textContent = levels[e.dataset.digest][k];
+    e.classList.toggle('pending', !e.textContent.endsWith('dB'));
+  });
+}
+// A custom cutoff needs its curve drawn and its level change measured, so the page asks again.
+function setCustom() {
+  const v = +customBox.value;
+  if (customBox.value === '' || !(v >= 0 && v <= +customBox.max)) return;
+  const url = new URL(location.href);
+  url.searchParams.set('step', 'filter');
+  url.searchParams.set('cutoff', String(v));
+  url.hash = 'filter';
+  location.replace(url);
+}
+if (cutoffBox) cutoffBox.addEventListener('change', () => {
+  const custom = isCustom();
+  document.getElementById('custom-wrap').hidden = !custom;
+  customBox.disabled = !custom;
+  document.getElementById('custom-note').hidden = !custom;
+  if (custom) { customBox.focus(); if (customBox.value !== '') setCustom(); }
+  else { show(); save({cutoff: key()}); }
+});
+if (customBox) customBox.addEventListener('change', setCustom);
+function limit() {
+  const boxes = [...document.querySelectorAll('input[name=filters]')];
+  const n = boxes.filter(b => b.checked).length;
+  boxes.forEach(b => { b.disabled = !b.checked && n >= max; });
+}
+document.querySelectorAll('input[name=filter]').forEach(r => r.addEventListener('change', () => save({filter: r.value})));
+document.querySelectorAll('input[name=filters]').forEach(c => c.addEventListener('change', () => {
+  limit();
+  const p = new URLSearchParams();
+  document.querySelectorAll('input[name=filters]:checked').forEach(b => p.append('filters', b.value));
+  if (![...p].length) p.append('filters', '');
+  save(p);
+}));
+limit();
+const track$ = document.getElementById('profile');
+if (track$) {
+  const box = document.getElementById('clip-box');
+  const startBox = document.getElementById('start'), secondsBox = document.getElementById('seconds');
+  const running = +track$.dataset.running;
+  const hms = s => `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const parse = t => {
+    const parts = String(t).trim().split(':').map(Number);
+    return parts.some(isNaN) || !parts.length ? null : parts.reduce((a, p) => a * 60 + p, 0);
+  };
+  const length = () => Math.min(Math.max(+secondsBox.value || 0, 1), running);
+  const clamp = s => Math.min(Math.max(0, s), Math.max(0, running - length()));
+  function place(s, write) {
+    s = clamp(s);
+    box.style.left = `${100 * s / running}%`;
+    box.style.width = `${Math.max(100 * length() / running, 0.6)}%`;
+    box.setAttribute('aria-valuenow', Math.round(s));
+    box.setAttribute('aria-valuetext', `${hms(s)} to ${hms(s + length())}`);
+    box.dataset.label = `Clip ${hms(s)} to ${hms(s + length())}`;
+    box.dataset.edge = s / running < 0.12 ? 'start' : s / running > 0.88 ? 'end' : '';
+    if (write) startBox.value = hms(s);
+    return s;
+  }
+  let at = place(parse(startBox.value) ?? 0, false);
+  // On a narrow screen the timeline scrolls sideways, and opens on the clip.
+  const scroller = document.getElementById('profile-scroll');
+  scroller.scrollLeft = box.offsetLeft - scroller.clientWidth / 2;
+  const commit = () => save({start: startBox.value, seconds: secondsBox.value});
+  const secondsAt = x => (x - track$.getBoundingClientRect().left) / track$.clientWidth * running;
+  let grab = null;
+  box.addEventListener('pointerdown', e => {
+    grab = secondsAt(e.clientX) - at;
+    box.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  box.addEventListener('pointermove', e => { if (grab !== null) at = place(secondsAt(e.clientX) - grab, true); });
+  box.addEventListener('pointerup', () => { if (grab !== null) { grab = null; commit(); } });
+  track$.addEventListener('click', e => {
+    if (e.target === box) return;
+    at = place(secondsAt(e.clientX), true);
+    commit();
+  });
+  box.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 60 : 10;
+    const move = {ArrowLeft: -step, ArrowRight: step, Home: -Infinity, End: Infinity}[e.key];
+    if (move === undefined) return;
+    e.preventDefault();
+    at = place(Number.isFinite(move) ? at + move : move < 0 ? 0 : running, true);
+    commit();
+  });
+  startBox.addEventListener('change', () => {
+    const s = parse(startBox.value);
+    if (s !== null) { at = place(s, false); commit(); }
+  });
+  secondsBox.addEventListener('input', () => { at = place(at, false); });
+  secondsBox.addEventListener('change', commit);
+  // The recommendation follows the duration: the window of that length where the bass is
+  // heaviest, worked out as the server does (web.py, _heaviest).
+  const profile = {{ profile|tojson }};
+  const recBox = document.getElementById('rec-start'), mark = document.getElementById('rec-mark');
+  function recommend() {
+    const power = profile.db.map(v => 10 ** (v / 10));
+    const n = Math.max(1, Math.floor(length() / profile.bucket_s + 0.5));
+    if (power.length <= n) return 0;
+    let sum = power.slice(0, n).reduce((a, b) => a + b, 0), best = sum, at0 = 0;
+    for (let i = n; i < power.length; i++) {
+      sum += power[i] - power[i - n];
+      if (sum > best) { best = sum; at0 = i - n + 1; }
+    }
+    return at0 * profile.bucket_s;
+  }
+  let rec = recommend();
+  function showRec() {
+    rec = recommend();
+    recBox.textContent = hms(rec);
+    mark.style.left = `${100 * rec / running}%`;
+    mark.style.width = `${Math.max(100 * length() / running, 0.6)}%`;
+    useRec.hidden = Math.round(at) === Math.round(clamp(rec));
+  }
+  const useRec = document.getElementById('use-rec');
+  useRec.addEventListener('click', () => {
+    at = place(rec, true);
+    commit();
+    showRec();
+    box.focus();
+  });
+  for (const ev of ['pointerup', 'keydown']) box.addEventListener(ev, () => setTimeout(showRec));
+  track$.addEventListener('click', () => setTimeout(showRec));
+  startBox.addEventListener('change', showRec);
+  secondsBox.addEventListener('input', showRec);
+  showRec();
+}
+{% if not profile %}
+{
+  const startBox = document.getElementById('start'), useRec = document.getElementById('use-rec');
+  if (startBox && useRec) {
+    startBox.addEventListener('input', () => { useRec.hidden = !startBox.value.trim(); });
+    useRec.addEventListener('click', () => {
+      startBox.value = '';
+      useRec.hidden = true;
+      save({start: ''});
+      startBox.focus();
+    });
+  }
+}
+{% endif %}
+{% if measuring or designing %}
+const known = {{ f.filters|map(attribute='digest')|list|tojson }};
+const working = {{ (designing.ref if designing else '')|tojson }};
+async function follow() {
+  try {
+    const s = await (await fetch(`/api/films/${film}/wizard?track=${track}&cutoff=${key()}`)).json();
+    const designed = working && !s.active.some(a => a.ref === working);
+    if (designed || s.filters.join() !== known.join()) { location.reload(); return; }
+    levels = s.levels; show();
+    const note = document.getElementById('measuring-note');
+    if (note) note.hidden = !s.measuring;
+    for (const a of s.active) { const el = document.getElementById(a.ref); if (el) setProgress(el, a); }
+    if (!s.measuring && !working) return;
+  } catch (e) {}
+  setTimeout(follow, 3000);
+}
+setTimeout(follow, 3000);
+{% endif %}
+</script>
+{% endif %}
+{% endblock %}

@@ -1,7 +1,7 @@
 """Compare the BEQ track against the original, inside the remuxed MKV.
 
 ffmpeg decodes both tracks of the same file from its start, to the same channel
-layout, high-passed at 300 Hz so the BEQ change in the bass
+layout, high-passed at 300 Hz (HIGHPASS) so the BEQ change in the bass
 doesn't matter. Two checks come out of one decode:
 
 * sync: cross-correlation of the mono sums; a positive lag means the BEQ track
@@ -25,6 +25,15 @@ from . import layouts, pcmio
 TIMELINE = "aresample=min_comp=0.002:min_hard_comp=0.002:first_pts=0"
 
 SR = 8000  # plenty for a lag estimate; 0.125 ms resolution before interpolation
+
+# The LFE channel has almost nothing above 300 Hz, so any bass that survives the
+# high-pass swamps it and the channel-order check reports LFE as swapped. A BEQ filter
+# can lift the bass below 20 Hz by 30 dB and more: four 2-pole stages (48 dB/octave)
+# remove it where one stage let some through. The high-pass runs before the window is
+# cut (compare), so the window doesn't start with the filter's response to a step whose
+# size is the bass level at the cut, which the BEQ changes.
+HIGHPASS = ",".join(["highpass=f=300"] * 4)
+
 DECODE_TIMEOUT_S = 3600
 
 
@@ -81,8 +90,8 @@ def compare(
     ac = ["-ac", str(ch)] if downmix else []
     with tempfile.TemporaryDirectory() as td:
         a, b = Path(td) / "a.f32", Path(td) / "b.f32"
-        af = (f"{TIMELINE},atrim=start={at:.3f}:duration={window_s},"
-              f"highpass=f=300,aresample={SR}")
+        af = (f"{TIMELINE},{HIGHPASS},atrim=start={at:.3f}:duration={window_s},"
+              f"aresample={SR}")
         proc = popen(
             [ffmpeg, "-v", "error", "-nostdin", *pcmio.DECODE_OPTS, "-i", mkv,
              "-map", f"0:a:{a_idx}", "-af", af, *ac, "-f", "f32le", str(a),

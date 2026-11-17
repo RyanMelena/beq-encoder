@@ -1,0 +1,41 @@
+{# A film's filters set side by side, as the film detail page and the wizard list them: one
+   row for each filter under the same headings, and one chart that draws the rows together. #}
+
+{# The headings, the same for every group on a page. `pick`: the wizard's column of radios or
+   tick boxes. `forge`: the film has a BEQ Forge filter, so every group has a column for BEQ
+   Forge's confidence. Each figure's heading says what the figure means. #}
+{% macro head(pick=false, forge=false) -%}
+<thead><tr>
+  {% if pick %}<th scope="col" class="pick"><span class="sr-only">Choose</span></th>{% endif %}
+  <th scope="col" class="cmp-filter">Filter</th>
+  <th scope="col" class="fig">Bass restored <span class="gloss">{{ TERMS.bass }}</span></th>
+  <th scope="col" class="fig wide">Level change <span class="gloss">{{ TERMS.level }}</span></th>
+  {% if forge %}<th scope="col" class="fig sure">BEQ Forge's confidence <span class="gloss">{{ TERMS.confidence }}</span></th>{% endif %}
+</tr></thead>
+{%- endmacro %}
+
+{# A filter's number and its line, as the chart beside the list draws it, then its name and marks. #}
+{% macro name(x, n) -%}
+<span class="cmp-n">{{ swatch(n - 1)|safe }} {{ n }}</span> <b>{{ x.name }}</b>{% if x.in_use %} <span class="badge ok" data-sym="✓">In use</span>{% endif %}
+{%- endmacro %}
+
+{# Under a filter's name: what it was made for, in a group of mixed makes, and when it last
+   changed, where that is known. Then the filter it is identical to. Every group keeps the
+   same columns. #}
+{% macro about(x, made_for, same) -%}
+{% set bits = [] %}
+{% if made_for %}{% set _ = bits.append(('Listed for ' ~ x.mix) if x.mix else ('Made for ' ~ x.made_for)) %}{% endif %}
+{% if x.dated[1] != 'Not recorded' %}{% set _ = bits.append(x.dated[0] ~ ' ' ~ x.dated[1]) %}{% endif %}
+{% if bits %}<div class="small muted">{{ bits|join('. ') }}</div>{% endif %}
+{% if x.digest in same %}<div class="small muted">Identical to filter {{ same[x.digest] }}. The chart shows one line for both.</div>{% endif %}
+{%- endmacro %}
+
+{# A level change in its column: a figure, or where its measurement stands, set apart from a figure. #}
+{% macro level(said, digest='') -%}
+<span class="v level{{ '' if said.endswith('dB') else ' pending' }}"{% if digest %} data-digest="{{ digest }}"{% endif %}>{{ said }}</span>
+{%- endmacro %}
+
+{# Said once over a list on a narrow screen, which has no heading row: what the headings say on a wide one. #}
+{% macro notes(forge=false) -%}
+<p class="small muted cmp-gloss">Bass restored: {{ TERMS.bass[:1]|lower ~ TERMS.bass[1:] }}. Level change: {{ TERMS.level[:1]|lower ~ TERMS.level[1:] }}.{% if forge %} BEQ Forge's confidence: {{ TERMS.confidence[:1]|lower ~ TERMS.confidence[1:] }}.{% endif %}</p>
+{%- endmacro %}

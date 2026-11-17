@@ -137,6 +137,9 @@ def _mkvmerge_cmd(job: Job, spec: MuxSpec, sync_ms: float, tags: Path) -> list[s
     elif any(a.default and a.track_id in spec.replace_ids for a in spec.probe.audio):
         # the track removed here held the flag an earlier run took from the original
         cmd += ["--default-track-flag", f"{spec.track.track_id}:1"]
+    for tid, stamps in spec.source.timestamps.items():  # see tools._timestamps_v2
+        if tid not in spec.replace_ids:
+            cmd += ["--timestamps", f"{tid}:{stamps}"]
     cmd.append(str(job.src))
     cmd += [
         "--language", f"0:{spec.track.language or 'und'}",

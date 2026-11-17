@@ -5,9 +5,10 @@ Two kinds of evidence, kept apart because they cost very different amounts:
 * **From the probe and the catalogue** (free, recomputed whenever the catalogue,
   the designer or the file changes): does the BEQ Catalogue have an entry for this
   film's best track, and, for a file that already has a BEQ track, is that track
-  stale (its catalogue entry changed, a catalogue entry appeared for a designed
-  BEQ, the designer's answers moved on, this encoder improved its output since,
-  or a better output format is now possible)?
+  stale (its catalogue entry changed, the designer's answers moved on, this encoder
+  improved its output since, or a better output format is now possible)? A catalogue
+  entry appearing for a designed BEQ track is not staleness: neither source is better
+  by default, so it is recorded as `catalogue_also` for the person to compare.
 * **From the audio** (reads part of the film): a screen for a mastering roll-off,
   from the peak spectrum of the best track's mono mix over ten 30 s excerpts spread
   through the film. A hint for picking candidates, not a design: the designer
@@ -149,39 +150,30 @@ def film_of(row) -> dict:
             "year": row["year"], "edition": row["edition"]}
 
 
-def _matches(best, film: dict, catalogue) -> list:
+def matches(track, film: dict, catalogue) -> list:
+    """The catalogue's (match, entry) pairs for one track of a film."""
     if catalogue is None:
         return []
     return catalogue.for_track(film.get("tmdb"), film.get("title"), film.get("year"),
-                               film.get("edition"), best.kind, best.layout_label)
+                               film.get("edition"), track.kind, track.layout_label)
 
 
-def _designed_reasons(tags: dict, with_filters: list, designer: dict | None) -> list[str]:
-    """Why a BEQ track the designer made is out of date: the catalogue now has entries
-    for this exact track (`with_filters`), or the design version has moved on."""
-    reasons = []
-    if with_filters:
-        reasons.append(f"the catalogue now has {len(with_filters)} entr"
-                       f"{'y' if len(with_filters) == 1 else 'ies'} for this track")
+def _designed_reasons(tags: dict, designer: dict | None) -> list[str]:
+    """Why a BEQ track the designer made is out of date: the design version has moved on."""
     current = _int((designer or {}).get("design_version"))
     made = _int(tags.get("design_version"))
     if current and made and current > made:
         release = (designer or {}).get("designer_release") or ""
-        reasons.append(f"the designer's answers have changed since "
-                       f"(design version {made} → {current}, beqforge {release})")
-    return reasons
+        return [f"the designer's answers have changed since "
+                f"(design version {made} → {current}, beqforge {release})"]
+    return []
 
 
-def designed_staleness(probe, film: dict, catalogue,
-                       designer: dict | None) -> list[tuple[str, str]]:
+def designed_staleness(probe, designer: dict | None) -> list[tuple[str, str]]:
     """(track name, why it is out of date) for each BEQ track the designer made."""
-    best = probe.best if probe else None
-    if best is None:
-        return []
-    with_filters = [e for m, e in _matches(best, film, catalogue) if m == "exact" and e.filters]
-    return [(t.name, reason) for t in probe.beq_tracks
+    return [(t.name, reason) for t in (probe.beq_tracks if probe else [])
             if (t.beq_tags or {}).get("source") == "designer"
-            for reason in _designed_reasons(t.beq_tags, with_filters, designer)]
+            for reason in _designed_reasons(t.beq_tags, designer)]
 
 
 def assess(probe, film: dict, catalogue, designer: dict | None = None,
@@ -202,10 +194,16 @@ def assess(probe, film: dict, catalogue, designer: dict | None = None,
     out["best"] = {"track_id": best.track_id, "label": best.label, "kind": best.kind,
                    "supported": plan.ok, "output": plan.label if plan.ok else None,
                    "reason": plan.reason or ""}
-    matches = _matches(best, film, catalogue)
-    exact = [e for m, e in matches if m == "exact"]
+    if not plan.ok:  # the track a BEQ track can be made from instead, when the film has one
+        other = next((t for t in probe.audio if t.pickable and t.track_id != best.track_id
+                      and support.plan(t).ok), None)
+        if other:
+            out["usable_instead"] = {"track_id": other.track_id, "label": other.label,
+                                     "language": other.language}
+    found = matches(best, film, catalogue)
+    exact = [e for m, e in found if m == "exact"]
     with_filters = [e for e in exact if e.filters]
-    others = [e for m, e in matches if m != "exact" and e.filters]
+    others = [e for m, e in found if m != "exact" and e.filters]
     if with_filters:
         out["catalogue"] = "exact"
         out["catalogue_count"] = len(with_filters)
@@ -234,7 +232,8 @@ def assess(probe, film: dict, catalogue, designer: dict | None = None,
                         f"its catalogue entry by {tags.get('author') or 'its author'} has "
                         + ("been updated" if same else "changed or been withdrawn"))
             elif info["source"] == "designer":
-                info["reasons"] += _designed_reasons(tags, with_filters, designer)
+                info["reasons"] += _designed_reasons(tags, designer)
+                info["catalogue_also"] = len(with_filters)
             if rev is not None and rev < AUDIO_REVISION:
                 info["reasons"].append(
                     "made before " + "; ".join(REVISIONS[r] for r in

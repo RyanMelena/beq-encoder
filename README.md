@@ -13,11 +13,10 @@ You decide, film by film, whether to use a filter; nothing touches a file until 
 
 ```mermaid
 flowchart LR
-    A[Library scan] --> B[Run BEQ]
-    B --> C{Filter}
-    C -->|catalogue entry| D[You choose a filter<br>or none]
-    C -->|no entry| E[beqforge designs one] --> D
-    D --> F[Filter and encode<br>TrueHD]
+    A[Library] --> B[Film page:<br>its filters]
+    B --> C[Wizard: track,<br>filter, options]
+    E[beqforge designs one] -.-> C
+    C --> F[Filter and encode<br>TrueHD]
     F --> G[Check every sample]
     G --> H[Remux in place]
 ```
@@ -28,6 +27,7 @@ flowchart LR
 - **Nothing changes except the BEQ.** The encoder compares every sample of the encoded track with the filtered source, and fails the job on a mismatch.
 - **Atmos objects survive.** Every object keeps its audio and its position.
 - **A failed job costs nothing.** The encoder replaces the source file only after every check passes.
+- **The BEQ can fit your subwoofers.** An optional [high-pass floor](docs/how-it-works.md#the-high-pass-floor) removes the bass that your system cannot play, so the BEQ track needs less attenuation.
 - **The library looks after itself.** The encoder finds new films, flags the films that BEQ can help, and flags BEQ tracks that a newer filter supersedes.
 
 ## What gets a BEQ track
@@ -94,16 +94,18 @@ Open `http://<host>:8080`. If the encoder cannot use your DEE folder, a banner a
 
 ## Use it
 
-1. Open a film from the **Library** page. The **BEQ candidates** view lists the films where the catalogue has a filter or the bass check found roll-off.
-2. Click **Run BEQ**. The encoder looks for a filter in the catalogue, then asks the designer.
-3. Compare the candidates on the job page, pick one, and click **Encode with this filter**. If the film is better without BEQ, click **Don't add BEQ**.
-4. Wait for the job. The film page then shows the BEQ track with its before and after charts.
+1. In the **Library**, sort and filter the list, then open a film. To list the films that BEQ can help, filter on a **Strong** candidate rating and **No BEQ tracks**.
+2. The film page lists every filter the encoder knows for the film, with its curve, the bass it restores, and its level change. Click **Add BEQ track**.
+3. The wizard preselects the best audio track and the filter made for it. Pick another filter or a low-end cutoff if you want, click **Continue to options**, then **Add BEQ track**.
+   If no filter fits, click **Design a filter** in the wizard. The beqforge designer runs in the background, and its filter joins the list when it is ready.
+   To hear filters first, click **Make a BEQ clip** instead. The clip is a short excerpt of the film with a BEQ track for each filter, written to `CLIP_DIR`.
+4. The film page shows the progress. When the work ends, it shows the BEQ track with its before and after charts.
 
 ## Documentation
 
 | Page | Read it to |
 |---|---|
-| [How BEQ Encoder makes a BEQ track](docs/how-it-works.md) | Follow a job from **Run BEQ** to the replaced file. |
+| [How BEQ Encoder makes a BEQ track](docs/how-it-works.md) | Follow a BEQ track from **Add BEQ track** to the replaced file. |
 | [TrueHD encoding through dee_shim](docs/truehd-encoding.md) | Understand the DEE command and the checks that every encode must pass. |
 | [DD+ Atmos through Cavern](docs/dd-plus-atmos.md) | Judge how far to trust a BEQ track made from DD+ Atmos. |
 | [How the library stays current](docs/library.md) | Understand scans, the file watch, candidates, and stale BEQ tracks. |

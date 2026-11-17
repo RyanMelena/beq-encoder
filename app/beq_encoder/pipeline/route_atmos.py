@@ -12,7 +12,6 @@ from pathlib import Path
 
 from .. import atmos, caf, media, pcmio
 from ..beqfilter import FilterJob, apply, report_dict
-from ..biquad import design_sos
 from ..dee import ATMOS_INPUT
 from . import tools
 from .job import Encoded, Job
@@ -230,7 +229,7 @@ def _verify(job: Job, src: Path, out: Path, fj: FilterJob, gain: float, duration
     stage = "Checking the TrueHD Atmos encode against the filtered source"
     job.progress(stage, 0)
     tick = job.ticker(stage, (duration or 0) * _SR)
-    sos = design_sos(fj.filters, float(_SR))
+    sos = fj.sos(float(_SR))
     version = job.procs.capture([job.s.truehdd_path, "--version"], timeout=30).stdout.strip()
     times = atmos.decoder_update_times(version)
     job.log(f"{version or 'truehdd'}: position update times read to the {times}")

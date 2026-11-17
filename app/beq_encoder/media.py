@@ -9,8 +9,9 @@ tier; `pick_best` chooses the track a BEQ is made from:
   3  lossy                   DD+, DTS core / HRA / ES / Express, AC-3, AAC, Opus, ...
 
 within a tier: more channels, then the original-language flag, then the default
-flag, then file order. Commentary, descriptive-audio, forced and BEQ tracks are
-never picked automatically.
+flag, then file order. Commentary, descriptive-audio and BEQ tracks are never picked
+automatically. The forced flag doesn't exclude a track: Matroska defines it for
+subtitles, and remuxes set it on main audio tracks too.
 """
 
 from __future__ import annotations
@@ -112,8 +113,8 @@ class AudioTrack:
 
     @property
     def extra(self) -> bool:
-        """Commentary / descriptive / forced: never a BEQ source by default."""
-        return self.commentary or self.descriptive or self.forced
+        """Commentary / descriptive: never a BEQ source by default."""
+        return self.commentary or self.descriptive
 
     @property
     def pickable(self) -> bool:
@@ -144,6 +145,23 @@ class ProbeResult:
     @property
     def best(self) -> AudioTrack | None:
         return pick_best(self.audio)
+
+    @property
+    def best_json(self) -> str | None:
+        """The library row's summary of `best` (media.best_json); None without one."""
+        b = self.best
+        return json.dumps({"track_id": b.track_id, "label": b.label, "kind": b.kind,
+                           "objects": b.objects}) if b else None
+
+    def track_key(self, track: AudioTrack) -> str:
+        """What names an original track after BEQ tracks come and go around it: its place
+        among the original tracks, then its format. Track ids shift when a BEQ track is added."""
+        originals = [a.track_id for a in self.audio if not a.beq]
+        return ":".join(map(str, (originals.index(track.track_id), track.kind, track.codec,
+                                  track.channels, track.layout)))
+
+    def track_by_key(self, key: str) -> AudioTrack | None:
+        return next((a for a in self.audio if not a.beq and self.track_key(a) == key), None)
 
     def track(self, track_id: int) -> AudioTrack | None:
         return next((a for a in self.audio if a.track_id == track_id), None)

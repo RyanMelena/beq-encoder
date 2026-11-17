@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}{{ heading }} · BEQ Encoder{% endblock %}
 {% block body %}
-{% if crumb %}<p class="crumb"><a href="{{ crumb[1] }}">{{ crumb[0] }}</a> / {{ heading }}</p>{% endif %}
+<p class="crumb"><a href="{{ crumb[1] }}">{{ crumb[0] }}</a> / <span aria-current="page">{{ heading }}</span></p>
 <h1>{{ heading }}</h1>
-{% if requested %}<p class="path whole muted">{{ requested }}</p>{% endif %}
 <p>{{ message }}</p>
-<p>{{ next_step }}</p>
-<div class="actions">
-  {% for label, href in links %}<a class="btn{{ ' ghost' if not loop.first }}" href="{{ href }}">{{ label }}</a>
-  {% endfor %}
-</div>
+{% if next_step %}<p>{{ next_step }}</p>{% endif %}
+<p>{% for label, href in links %}<a href="{{ href }}">{{ label }}</a>{{ ' · ' if not loop.last }}{% endfor %}</p>
+{% if search %}
+<form method="get" action="/" class="search" role="search">
+  <input type="hidden" name="show" value="all">
+  <label for="find-film">Search films by title or path</label>
+  <div class="search-row"><input type="search" name="q" id="find-film"> <button class="ghost">Search the Library</button></div>
+</form>
+{% endif %}
+{% if requested %}<p class="small muted">The address was <span class="path">{{ requested }}</span></p>{% endif %}
 {% endblock %}

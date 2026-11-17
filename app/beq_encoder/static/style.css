@@ -50,7 +50,6 @@ code, .path { font-family: var(--mono); font-size: 13px; }
 .top nav a, .tabs a { text-decoration: none; padding: 6px 10px; border-radius: 6px; color: var(--muted); }
 .top nav a:hover, .tabs a:hover { color: var(--text); text-decoration: none; }
 .top nav a.on { color: var(--text); font-weight: 600; background: var(--tint); box-shadow: inset 0 -3px 0 var(--accent-fill); }
-.ver { color: var(--muted); font-size: var(--small); }
 .pill { color: var(--prog-fg); background: var(--prog-bg); border: 1px solid var(--prog-edge); border-radius: 10px; padding: 0 7px; font-size: 13px; line-height: 18px; margin-left: 4px; }
 .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin: 12px 0; }
 .bar:has(> h1) { margin: 0 0 12px; align-items: flex-start; }
@@ -96,8 +95,12 @@ table.list { width: 100%; border-collapse: collapse; background: var(--panel); b
 /* data-sym comes from JOB_STATUS in web.py. */
 .badge[data-sym]::before { content: attr(data-sym); margin-right: 4px; }
 .badge[data-sym]::before { content: attr(data-sym) / ""; }
-/* Plain data: a fact about the file, never a status, so no status colour. */
-.tag, td[data-label="BEQ track"] .badge { display: inline-block; font-size: 13px; font-weight: 400; line-height: 18px; padding: 0 6px; border-radius: 4px;
+/* Plain data: a fact about the file, never a status or a control, so it is plain words with
+   no outline. Tags in a row are set apart by a dot, which stays with the tag before it. */
+.tag { font-size: 13px; font-weight: 400; color: inherit; white-space: nowrap; }
+.tag:has(+ .tag)::after { content: "\00A0\00B7"; color: var(--muted); }
+div.tag { color: var(--muted); white-space: normal; }
+td[data-label="BEQ track"] .badge { display: inline-block; font-size: 13px; font-weight: 400; line-height: 18px; padding: 0 6px; border-radius: 4px;
   color: var(--text); background: transparent; border: 1px solid var(--neutral-edge); vertical-align: middle; }
 /* The BEQ track name is long plain data; its full text is the title tooltip. */
 td[data-label="BEQ track"] .badge { display: block; width: fit-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
@@ -227,8 +230,6 @@ td.assess { max-width: 340px; }
 
 /* Job and jobs pages. */
 .jobsub { margin: 6px 0 2px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
-.elapsed { white-space: nowrap; }
-.elapsed:has(#elapsed:empty) { display: none; }
 p.path a { overflow-wrap: anywhere; }
 /* Banners span the page; .note fits its text. */
 .outcome, .verdict { width: auto; max-width: none; margin: 12px 0 18px; padding: 14px 16px; background: var(--panel);
@@ -254,10 +255,9 @@ details.more { flex-basis: 100%; }
 .trackline { margin: 4px 0 0; }
 .decide { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .decide-curve { position: sticky; top: 12px; }
-.decide-curve details.add { margin-top: 10px; }
 table.choices tr:has(input:checked) { background: var(--tint); }
 .filters { white-space: nowrap; }
-.search { margin-top: 12px; }
+.search { margin: 0 0 12px; max-width: 760px; }
 .search label { display: block; font-weight: 600; margin-bottom: 4px; }
 .search-row { display: flex; gap: 8px; }
 .search-row input[type=search] { flex: 1; min-width: 0; }
@@ -276,6 +276,7 @@ details.numbers { margin-top: 2px; }
 details.numbers { font-size: 13px; color: var(--muted); }
 details.tech { margin-top: 22px; }
 details.tech > .cols { margin-top: 10px; }
+details.tech > h3 { margin: 18px 0 4px; }
 .section-link a { margin-left: 8px; font-weight: 400; }
 pre.log:empty::before { content: "Nothing logged yet."; color: var(--muted); }
 @media (max-width: 1024px) {
@@ -302,9 +303,6 @@ p.path { overflow-wrap: anywhere; }
 .verdict .actions { margin: 10px 0; }
 .verdict .why { margin-top: 4px; }
 .verdict .why summary { padding-block: 2px; }
-.track-hint { margin: -4px 0 8px; }
-.film-actions { margin: 14px 0 8px; }
-.film-actions .chk { flex-basis: 100%; }
 p.path.whole { word-break: normal; overflow-wrap: anywhere; }
 .charts a span { display: block; padding: 6px 10px; color: var(--chart-caption); text-decoration: underline; text-underline-offset: 2px; }
 .charts a:hover span { text-decoration-thickness: 2px; }
@@ -315,28 +313,21 @@ p.path.whole { word-break: normal; overflow-wrap: anywhere; }
 .verdict.behind { background: none; border: 0; padding: 0 2px; margin: 0 0 18px; }
 .verdict.behind h2.headline { font-size: 15px; font-weight: 500; }
 .verdict .why { font-size: var(--small); }
-.tracks tbody tr:has(input:checked) { background: var(--tint); }
-.tracks .pick label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
-.tracks .use { display: none; }
-@media (min-width: 701px) {
-  #runform input[type=radio], .film-actions input[type=checkbox] { width: 18px; height: 18px; margin: 0; }
-}
+/* The scan the track list came from, and the button that refreshes it, beside the list's heading. */
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin: 28px 0 8px; }
+.sec-head h2 { margin: 0; }
+.rescan { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+/* A reference number is plain text, not a boxed tag. */
+h1 .ref { margin-left: 6px; font-size: var(--small); font-weight: 400; color: var(--muted); white-space: nowrap; }
+.filter-curves { max-width: 720px; margin-top: 10px; }
+.tracks th { white-space: nowrap; }
 @media (max-width: 700px) {
-  .film-actions button, .film-actions form.inline { flex: 1 1 140px; }
-  .film-actions form.inline button { width: 100%; }
   .charts a span { display: flex; align-items: center; min-height: 44px; padding: 10px; }
   .verdict .why summary { padding-block: 14px; }
-  /* A track card: Use this track, the format, every other field label-left, the flags and ID last. The label's ::after
-     covers the card, so any tap chooses the track; the cell stays static so the card is its positioning parent. */
-  .list.compact.tracks:not(#curve table) tr:has(td.pick) { grid-template-columns: minmax(0, 1fr); padding: 10px 12px 12px; }
-  .list.compact.tracks:not(#curve table) tr:has(input:checked) { border-color: var(--accent); }
-  .list.compact.tracks:not(#curve table) td.pick { position: static; order: -3; padding: 0 0 6px; }
   .list.compact.tracks:not(#curve table) td.none { display: none; }
-  .tracks .pick label { font-weight: 600; }
-  .tracks .pick label::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: 8px; }
-  .tracks .use { display: inline; }
-  .list.compact.tracks:not(#curve table) td[data-label="Flags"] { order: 1; }
-  .list.compact.tracks:not(#curve table) td[data-label="ID"] { order: 2; }
+  /* Room for the track list's longer labels, so each reads the same as its column heading. */
+  .list.compact.tracks:not(#curve table) td[data-label]:not(.wide) { padding-left: 120px; }
+  .list.compact.tracks:not(#curve table) td[data-label]:not(.wide)::before { width: 112px; }
 }
 
 /* Job pages and the Jobs list: what needs the person, and what happened. */
@@ -351,45 +342,37 @@ p.path.whole { word-break: normal; overflow-wrap: anywhere; }
 #eta:empty { display: none; }
 .outcome .err-link { margin: 6px 0 0; }
 .outcome .actions form:has(button.danger) { margin-left: auto; }
+/* Cancelling is never the main thing to do: it keeps its own size and stays out of the primary's place. */
 @media (max-width: 700px) {
-  .outcome .actions:has(button.danger) { display: flex; flex-direction: column; align-items: stretch; }
-  .outcome .actions form:has(button.danger) { margin: 8px 0 0; }
-  .outcome .actions form:has(button.danger) button { width: 100%; }
+  .outcome .actions:has(button.danger) { display: flex; justify-content: flex-end; }
+  .outcome .actions form:has(button.danger) button { width: auto; }
 }
 .actions button.danger { background: transparent; color: var(--bad); border: 1px solid var(--bad); }
 .actions button.danger:hover { background: var(--hover); }
-/* Docked to the window rather than sticky in the form, so it leaves no empty slot in the page; main reserves its height instead. */
-.encode-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px max(20px, calc(50% - 580px)); background: var(--panel); border-top: 1px solid var(--field-line); }
-main:has(.encode-bar) { padding-bottom: 88px; }
-html:has(.encode-bar) { scroll-padding-bottom: 88px; }
-@media (max-width: 700px) { .encode-bar { padding-inline: 16px; } }
+/* Adding the track ends the form, after the options it depends on. */
+.encode-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.encode-bar .actions { margin: 0; }
+.encode-bar .go { flex-basis: 100%; }
+.search .design-ask button { margin: 0 6px; }
 .encode-bar p { display: flex; flex-direction: column; min-width: 0; margin: 0; }
 .encode-bar b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .encode-bar button { flex: none; }
 .settings-grid .go { margin: 0; }
-table.choices .filters { color: var(--text); font-size: 13px; line-height: 1.5; }
-.bands { display: grid; grid-template-columns: repeat(5, max-content); column-gap: 10px; font-variant-numeric: tabular-nums; }
-.bands span { text-align: right; }
-.bands span:nth-child(5n+1) { text-align: left; }
 dl.facts { grid-template-columns: 8em minmax(0, 1fr); gap: 2px 8px; margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
 @media (min-width: 1025px) {
   .decide { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); }
-  .decide-list, .decide-curve { grid-row: 1; }
-  .decide-list { grid-column: 1; }
-  .decide-curve { grid-column: 2; }
+  .decide-list { grid-column: 1; grid-row: 1; }
+  .decide-curve { grid-column: 2; grid-row: 1; }
 }
 @media (max-width: 1024px) {
   .decide { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
   .decide-curve { display: contents; }
-  .decide-curve details.add { order: 2; margin: 12px 0 0; }
-  .decide-list { order: 1; margin-top: 12px; }
+  /* The list comes first; the chart of the selected filter follows it, then the search. */
+  .decide-list { order: 1; }
+  .decide #curve { order: 2; margin-top: 12px; }
   .decide #curve { padding: 8px 12px; }
-  .decide #curve table { display: none; }
   .decide #curve svg.resp { height: 190px; margin: 4px 0; }
-}
-@media (max-width: 1024px) and (min-height: 560px) {
-  .decide #curve { position: sticky; top: 0; z-index: 3; box-shadow: 0 8px 16px var(--bg); }
 }
 .encode { grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 861px) {
@@ -416,23 +399,24 @@ pre.log .ln { display: block; padding-left: calc(9ch + 6px); text-indent: -9ch; 
   .settings-grid label.fmt { grid-column: 1 / -1; }
 }
 #jobs .grp th { padding: 12px 10px 6px; font-size: 13px; font-weight: 600; color: var(--text); }
-#jobs .prog:empty, #jobs .msg:empty, #jobs .eta:empty, #jobs .ph:empty, #jobs .when:empty { display: none; }
+#jobs .prog:empty, #jobs .msg:empty, #jobs .eta:empty, #jobs .ph:empty { display: none; }
 #jobs .msg { font-size: 13px; }
 #jobs .prog + .msg { margin-top: 4px; }
-#jobs .eta { margin-top: 2px; }
+#jobs .eta, #jobs .filt { margin-top: 2px; }
 #jobs .ph { margin-top: 3px; }
-#jobs .el, #jobs .when { white-space: nowrap; }
-#jobs td.row-act { text-align: right; }
-#jobs td.row-act .btn { padding: 4px 12px; }
+#jobs .when { white-space: nowrap; }
+#jobs td.job a { font-weight: 600; white-space: nowrap; }
+#jobs td.film a { color: inherit; }
+#jobs .choose { margin-top: 6px; padding: 4px 12px; white-space: nowrap; }
 #jobs .prog .meter { height: 8px; border-radius: 4px; }
 #jobs tr[data-status="awaiting"] { background: var(--tint); }
 @media (min-width: 1025px) {
   #jobs { table-layout: fixed; }
-  #jobs thead th:nth-child(1) { width: 56px; }
-  #jobs thead th:nth-child(2) { width: 26%; }
-  #jobs thead th:nth-child(3) { width: 170px; }
-  #jobs thead th:nth-child(4) { width: 180px; }
-  #jobs thead th:nth-child(6) { width: 84px; }
+  #jobs thead th:nth-child(1) { width: 84px; }
+  #jobs thead th:nth-child(2) { width: 18%; }
+  #jobs thead th:nth-child(3) { width: 210px; }
+  #jobs thead th:nth-child(5) { width: 130px; }
+  #jobs thead th:nth-child(6) { width: 135px; }
   #jobs tbody tr[data-id] { height: 62px; }
 }
 @media (max-width: 1024px) {
@@ -443,75 +427,75 @@ pre.log .ln { display: block; padding-left: calc(9ch + 6px); text-indent: -9ch; 
   #jobs tr[data-id] { grid-template-columns: auto minmax(0, 1fr); align-content: start; column-gap: 12px; row-gap: 6px; }
   #jobs tr[data-id] td { padding: 0; }
   #jobs tr[data-id] td::before { content: none; }
-  #jobs tr[data-id] td.film { grid-column: 1 / -1; grid-row: 1; padding-right: 76px; }
+  #jobs tr[data-id] td.job { grid-column: 1; grid-row: 1; }
+  #jobs tr[data-id] td.film { grid-column: 2; grid-row: 1; align-self: baseline; }
   #jobs td.state { grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
   #jobs .ph { margin: 0; }
-  #jobs td.num { grid-row: 3; font-size: 13px; color: var(--muted); }
-  #jobs td.time { grid-column: 2; display: flex; flex-wrap: wrap; gap: 0 12px; }
-  #jobs .el:empty { display: none; }
-  #jobs .el::before { content: "Elapsed "; }
+  #jobs td.when { grid-column: 1 / -1; grid-row: 3; font-size: 13px; color: var(--muted); }
+  #jobs tr[data-id] td.when::before { content: "Last change "; position: static; }
+  #jobs td.took { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+  #jobs tr[data-id] td.took::before { content: "Time "; position: static; }
   #jobs td.latest { grid-column: 1 / -1; padding-top: 2px !important; }
-  #jobs td.row-act { position: absolute; top: 8px; right: 0; padding: 0; }
-  #jobs td.row-act .btn { min-height: 44px; display: inline-flex; align-items: center; }
+  #jobs .choose { min-height: 44px; display: inline-flex; align-items: center; }
 }
 @media (min-width: 701px) and (max-width: 1024px) {
   #jobs tbody { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #jobs tr.grp + tr[data-id]:last-child { grid-column: 1 / -1; }
 }
 
-/* Library page. .lib-add spans the header's whole width so its panel can open below the actions
-   while its summary stays put; Scan library sits on top of its empty left side. */
-.lib-head { display: grid; grid-template-columns: minmax(0, 1fr) auto 84px; gap: 8px; align-items: start; margin: 12px 0 8px; }
-.lib-head h1 { grid-area: 1 / 1; margin: 0; line-height: 36px; }
-.lib-scan { grid-area: 1 / 2; position: relative; z-index: 1; }
-.lib-scan button { min-height: 36px; white-space: nowrap; }
-.lib-add { grid-area: 1 / 1 / auto / -1; }
-.lib-add > summary { display: flex; align-items: center; justify-content: center; gap: 6px; width: 84px; min-height: 36px; margin: 0 0 0 auto; list-style: none; }
-.lib-add > summary::-webkit-details-marker { display: none; }
-.lib-add > summary::after { content: " \25BE" / ""; }
-.lib-add[open] > summary::after { content: " \25B4" / ""; }
-.lib-panel { display: grid; gap: 16px; margin-top: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
-.lib-panel h2 { font-size: 15px; margin: 0 0 6px; }
-.lib-panel dl.kv { grid-template-columns: 150px minmax(0, 1fr); margin: 0; }
-.lib-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.lib-panel-actions p { margin: 0; flex-basis: 100%; }
-.lib-add-forms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
-.lib-path label { display: block; font-weight: 600; margin-bottom: 4px; }
-.lib-path-row { display: flex; gap: 8px; }
+/* Library page. Library tools opens in the page under its button, which also closes it, so it never covers the list. */
+.lib-head { position: relative; margin: 12px 0 8px; }
+.lib-head h1 { margin: 0; line-height: 36px; }
+.lib-tools > summary { position: absolute; right: 0; top: 0; display: flex; align-items: center; gap: 6px; min-height: 36px; list-style: none; white-space: nowrap; }
+.lib-tools > summary::-webkit-details-marker { display: none; }
+.lib-tools .opened, .lib-tools[open] .shut { display: none; }
+.lib-tools[open] .opened { display: inline; }
+.lib-panel { display: grid; gap: 12px; margin-top: 8px; padding: 14px; background: var(--panel); border: 1px solid var(--field-line); border-radius: 8px; }
+.lib-panel p { margin: 0; }
+/* A tool is its button, then one line on what it does, so the tools compare down the panel. */
+.lib-tool { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 4px 12px; align-items: center; margin: 0; }
+.lib-tool > button { justify-self: stretch; }
+.lib-path > * { grid-column: 1 / -1; }
+.lib-rare { padding-top: 8px; border-top: 1px solid var(--line); }
+.lib-rare .lib-tool { margin-top: 8px; }
+.lib-path label { font-weight: 600; }
+.lib-path-row { display: flex; gap: 8px; width: 100%; }
 .lib-path-row input { flex: 1 1 auto; min-width: 0; }
-.lib-path input[aria-invalid] { border-color: var(--bad); }
-.lib-path p { margin: 6px 0 0; overflow-wrap: anywhere; }
-.lib-info { margin: 0 0 12px; }
-.views { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 12px 0; }
-.views a { display: flex; flex-direction: column; justify-content: flex-start; gap: 1px; min-height: 52px; padding: 6px 10px; text-decoration: none;
-  color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
-.views a b { font-size: 18px; line-height: 1.2; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
-.views a.n-good b { color: var(--ok); }
-.views a.n-warn b { color: var(--accent); }
-.views a.n-bad b { color: var(--bad); }
-.views a:hover { border-color: var(--accent); }
-.views a.on { color: var(--text); font-weight: 600; background: var(--tint); border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.lib-path p.bad { overflow-wrap: anywhere; }
+#scan-status { margin: 0 0 12px; }
+/* Jobs is one link like Library and System. Its counts are words inside it. */
+.top nav { align-items: center; }
+.top nav a { white-space: nowrap; }
+.top nav .count { white-space: pre; font-weight: 400; }
+.lib-info { margin: 12px 0 0; }
+.views { display: flex; gap: 4px; margin: 12px 0 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.views a { padding: 8px 12px; text-decoration: none; color: var(--muted); border-radius: 6px 6px 0 0; white-space: nowrap; }
+.views a:hover { color: var(--text); }
+.views a.on { color: var(--text); font-weight: 600; background: var(--tint); box-shadow: inset 0 -3px 0 var(--accent-fill); }
+.views .n { font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* All films holds every other view, so it stands apart from them. */
+.views a:first-child { margin-right: 16px; }
+.library td.nil { color: var(--muted); }
 .lib-filter { margin: 8px 0 12px; }
 .lib-filter p { margin: 0; }
-.lib-filter form { margin-left: auto; }
+.lib-filter form { margin-left: auto; flex-wrap: wrap; gap: 8px 16px; }
+.lib-search { display: inline-flex; gap: 8px; align-items: center; }
 .library td { font-variant-numeric: tabular-nums; }
 .library td.lead a { font-weight: 600; }
 .library .lib-file { font-weight: 400; overflow-wrap: anywhere; margin-top: 2px; }
 .library .lib-file span { white-space: nowrap; }
 .library td.assess { max-width: none; text-wrap: pretty; }
 .library td.assess > div { margin-top: 2px; max-width: 70ch; }
-.library td.row-act { text-align: right; }
-/* Short values get pixel widths so a pill cannot outgrow its column; Assessment takes what is left. */
-.library col.c-film { width: 23.5%; }
-.library col.c-track { width: 150px; }
-.library col.c-beq { width: 160px; }
-.library col.c-job { width: 164px; }
-.library col.c-act { width: 80px; }
+.library .lib-job { font-weight: 600; }
+/* Short values get fixed widths; BEQ status takes what is left. */
+.library col.c-film { width: 24%; }
+.library col.c-bass { width: 170px; }
+.library col.c-filter { width: 190px; }
+.library col.c-next { width: 180px; }
+.library .lib-starts { margin-top: 4px; }
 @media (min-width: 1025px) {
   .library { table-layout: fixed; }
   .library th { white-space: nowrap; }
-  .library th:last-child { text-align: right; }
-  .library td.row-act .btn { padding: 4px 12px; }
   .library th, .library td { padding-inline: 8px; }
 }
 /* Phone and tablet share one card: title, pill and sentence, then a labelled row for each fact the film has. */
@@ -519,43 +503,629 @@ pre.log .ln { display: block; padding-left: calc(9ch + 6px); text-indent: -9ch; 
   .list.library tr { grid-template-columns: minmax(0, 1fr); }
   .list.library td.assess::before { content: none; }
   .library td.nil { display: none; }
-  .library .why summary { padding-block: 12px; margin-block: 0; color: var(--text); font-size: 14px; }
-  .library td.lead { padding-right: 92px; }
-  /* It spans the grid, so "right" is measured from the content edge, which already sits inside the card padding. */
-  .library td.row-act { position: absolute; top: 8px; right: 0; padding: 0; }
-  .library td.row-act .btn { padding-block: 0; min-height: 44px; display: inline-flex; align-items: center; }
 }
 @media (min-width: 761px) and (max-width: 1024px) {
   .list.library tbody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: start; }
   .list.library tr { margin: 0; }
   .library tr:has(td.empty) { grid-column: 1 / -1; }
-  .views { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .views a { flex-direction: row; align-items: center; gap: 6px; min-height: 44px; white-space: nowrap; }
-  .views a b { font-size: 15px; }
 }
 @media (max-width: 760px) {
   .lib-head h1 { line-height: 44px; }
-  .lib-scan button, .lib-add > summary { min-height: 44px; }
-  .lib-add-forms { grid-template-columns: minmax(0, 1fr); }
-  .lib-panel dl.kv { grid-template-columns: 130px minmax(0, 1fr); }
-  #lib-status { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .views { display: flex; flex-wrap: wrap; margin: 8px 0; }
-  .views a { flex: 1 1 auto; flex-direction: row; align-items: center; justify-content: center; gap: 6px; min-height: 44px; white-space: nowrap; }
-  .views a b { font-size: 15px; }
+  .lib-tools > summary { min-height: 44px; }
+  /* The same views as on a wide screen, as one switcher: All films across the top, the four it
+     holds in two columns under it, and the current one filled and ticked. */
+  .views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin: 0 0 8px; padding: 3px; background: var(--panel); border: 1px solid var(--field-line); border-radius: 8px; }
+  .views a, .views a:first-child { display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0; padding: 4px 10px; border-radius: 5px; }
+  .views a:first-child { grid-column: 1 / -1; }
+  .views a.on { color: var(--panel); background: var(--text); box-shadow: none; }
+  .views a.on::before { content: "\2713"; }
+  .views a.on .n { color: inherit; }
+  .lib-tool { grid-template-columns: minmax(0, 1fr); }
+  .lib-tool > button { justify-self: start; }
+  .lib-search { flex: 1 1 100%; order: -1; }
+  .lib-filter form { display: contents; }
+  .lib-filter .lib-view { flex: 1 1 0; }
+  .lib-filter .lib-view:has(.muted) { flex-basis: 100%; }
+  .top { flex-wrap: wrap; row-gap: 0; }
+  .top nav { order: 1; flex-basis: 100%; }
+  .top nav a { padding-inline: 8px; }
   .lib-filter { gap: 6px 12px; }
   .lib-filter form { flex: 1 1 100%; margin-left: 0; }
-  .lib-filter .chk { flex: 1 1 auto; }
   .lib-filter input[type=search] { flex: 1 1 auto; width: auto; }
 }
 
 /* Each state has one look: solid amber is only "waiting on you"; Stale and Not supported are not amber. */
 .badge.s-awaiting { color: var(--accent-ink); background: var(--accent-fill); border-color: var(--accent-fill); }
 .badge.s-unsupported { color: var(--neutral-fg); background: transparent; border-color: var(--neutral-edge); }
+.badge.cand { color: var(--good-fg); background: transparent; border-color: var(--good-edge); }
 .badge.maybe { color: var(--good-fg); background: transparent; border: 1px dashed var(--good-edge); }
 .badge.stale { color: var(--viz-violet); background: color-mix(in srgb, var(--viz-violet) 14%, var(--panel)); border-color: var(--viz-violet); }
-.views a.n-warn b, .warn-text { color: var(--viz-violet); }
-.views a.n-act b { color: var(--accent); }
+.warn-text { color: var(--viz-violet); }
 .verdict.s-stale { border-left-color: var(--viz-violet); }
 .outcome .headline + p { margin: 0; }
-.lib-filter .lib-view { margin: 0; font-size: 16px; }
+.lib-filter .lib-view { margin: 0; flex: 1 1 0; }
+@media (min-width: 761px) { .lib-filter .lib-view { min-width: 240px; } }
+dl.kv.sys { grid-template-columns: 220px minmax(0, 1fr); max-width: 90ch; }
+@media (max-width: 700px) { dl.kv.sys { grid-template-columns: minmax(0, 1fr); gap: 0; } dl.kv.sys dd { margin-bottom: 10px; } }
 .lib-path input[aria-invalid], .lib-path input[aria-invalid]:focus-visible { border-color: var(--bad); outline: 2px solid var(--bad); outline-offset: 1px; }
+/* Film page: the next step sits in the status box, each button beside what it does. */
+.steps { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.verdict.behind .steps { border-top: 0; padding-top: 0; }
+.steps h3 { margin: 0 0 8px; }
+.steps p { margin: 6px 0; }
+.steps .start { display: flex; gap: 12px; align-items: center; margin: 8px 0; }
+.steps .start button { flex: 0 0 auto; min-width: 220px; }
+.start-extra .steps { margin: 4px 0 0; padding-top: 0; border-top: 0; font-size: 14px; color: var(--text); }
+/* The audio track is chosen in the form its buttons start, as one menu. */
+.steps .track-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.track-pick label { font-weight: 600; }
+.track-pick select { max-width: 100%; }
+.track-pick > span { flex-basis: 100%; }
+.film-fail .job-ref { margin: 10px 0 0; }
+@media (max-width: 700px) {
+  .steps .start { flex-direction: column; align-items: stretch; gap: 4px; }
+  .track-pick select { width: 100%; }
+}
+
+/* Job pages, round 2: steps, comparable filter facts, and the finishing bar. */
+.job-steps { display: flex; flex-wrap: wrap; gap: 2px 0; margin: 0; padding: 0; list-style: none; counter-reset: step; font-size: var(--small); color: var(--muted); }
+.job-steps li { counter-increment: step; }
+.job-steps li::before { content: counter(step) ". "; }
+.job-steps li.done::before { content: "\2713\00a0" counter(step) ". "; }
+.job-steps li:not(:last-child)::after { content: "\203a" / ""; margin: 0 10px; font-weight: 400; color: var(--muted); }
+.job-steps li.now { color: var(--text); font-weight: 600; }
+dl.checks { grid-template-columns: 150px minmax(0, 1fr); margin: 10px 0 4px; }
+table.choices details { margin-top: 4px; }
+table.choices details dl.facts { margin-top: 4px; }
+.finish-note { margin: 0 0 8px; }
+ol.levels { margin: 0; padding-left: 20px; }
+ol.levels li { margin: 2px 0; }
+.result-grid h3 { margin-top: 0; }
+.tracks-alt .row-act { text-align: right; white-space: nowrap; }
+@media (max-width: 700px) {
+  .job-steps { flex-basis: 100%; }
+  dl.checks { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  dl.checks dd { margin-bottom: 8px; }
+}
+/* Job pages, round 4: the steps read as steps, hints sit with their controls, and on a narrow screen the curve sits in its filter's card. */
+h1 a { color: inherit; }
+.outcome .onward { color: var(--text); }
+.outcome details.why { margin-top: 10px; }
+.outcome a.btn { text-align: center; }
+.settings-grid { align-items: start; }
+.settings-grid .hint { font-size: var(--small); color: var(--muted); }
+.other-tracks { margin: 6px 0 0; }
+.other-tracks table { margin-top: 6px; }
+.bands-table caption { text-align: left; font-weight: 600; padding: 6px 8px 2px; }
+.bands-table tfoot th, .bands-table tfoot td { text-align: left; font-weight: 600; border-top: 1px solid var(--line); padding: 6px 8px; }
+.bands-note { margin: 4px 0 0; }
+.no-bands { margin: 0 0 4px; }
+.curve-slot:empty { display: none; }
+.curve-slot #curve { margin-top: 8px; cursor: default; }
+.curve-slot #curve h3 { display: none; }
+@media (max-width: 700px) {
+  :is(.outcome, .verdict) .actions a.btn { width: 100%; }
+}
+/* The bands stay a table inside a filter's card: their numbers compare down a column. */
+@media (max-width: 1024px) {
+  .curve-slot #curve table.bands-table { display: table; width: 100%; }
+  .curve-slot #curve .bands-table thead { display: table-header-group; }
+  .curve-slot #curve .bands-table tbody { display: table-row-group; }
+  .curve-slot #curve .bands-table tr { display: table-row; position: static; padding: 0; margin: 0; border: 0; background: none; }
+  .curve-slot #curve .bands-table td { display: table-cell; position: static; padding: 5px 6px; border-top: 1px solid var(--line); font-size: 14px; font-weight: 400; white-space: nowrap; }
+  .curve-slot #curve .bands-table td::before { content: none; }
+  .curve-slot #curve .bands-table tfoot td { font-weight: 600; white-space: normal; }
+}
+@media (max-width: 1024px) { .curve-slot #curve .bands-table th { padding: 5px 6px; white-space: nowrap; overflow-wrap: normal; font-size: var(--small); } }
+/* Job pages, round 5: the way to finish stays in reach on every width, declining stands apart, and pages a job leads to are links. */
+.encode-bar { position: sticky; bottom: 0; z-index: 3; box-shadow: 0 -6px 14px color-mix(in srgb, var(--text) 12%, transparent); }
+.encode-bar .actions { gap: 8px 18px; }
+.facts-note { margin: 8px 0 0; max-width: 95ch; }
+.rejected-why { margin: 4px 0 0; }
+.all-curves { margin-top: 18px; scroll-margin-top: 12px; }
+.trackline a { margin-left: 4px; white-space: nowrap; }
+.job-links { display: flex; flex-wrap: wrap; gap: 4px 22px; margin: 10px 0 0; }
+.job-links a.lead { font-weight: 600; }
+@media (max-width: 700px) {
+  .outcome .actions:not(:has(button.danger)) { grid-template-columns: minmax(0, 1fr); }
+  .job-links { flex-direction: column; gap: 0; margin-top: 4px; }
+  #jobs td.took.nil { display: none; }
+  .encode-bar { margin-inline: -12px; padding: 8px 12px; gap: 4px 12px; border-radius: 8px 8px 0 0; }
+  .encode-bar p { flex-direction: row; align-items: baseline; gap: 6px; flex-basis: 100%; }
+  .encode-bar .actions { flex: 1; justify-content: space-between; flex-wrap: nowrap; align-items: center; }
+}
+/* Job pages, round 6: the track and how to change it lead the chooser, what Add BEQ track starts sits in the finishing bar, more filters follow it. */
+.other-tracks, .only-track { margin: 6px 0 12px; }
+.trackline + form .decide { margin-top: 12px; }
+.find-more { margin: 18px 0 0; }
+.find-more h3 { margin: 0 0 6px; }
+.encode-bar .takes { display: block; flex: 1 1 260px; }
+@media (max-width: 700px) {
+  .encode-bar .takes { flex-basis: 100%; }
+  .encode-bar .actions button { padding-inline: 10px; }
+}
+/* Job page: the step count beside the pill, and an extra set apart from the job's answer. */
+.step-of { color: var(--muted); font-size: var(--small); }
+.optional { margin: 16px 0 0; padding: 12px 0 0; border-top: 1px solid var(--field-line); }
+.optional h2 { margin: 0 0 4px; font-size: 1rem; }
+.optional .actions { margin: 8px 0 0; }
+/* The Jobs item carries its counts, so on a phone the header's items sit closer and may wrap. */
+@media (max-width: 480px) {
+  .top nav { gap: 0; flex-wrap: wrap; }
+  .top nav a { padding-left: 6px; padding-right: 6px; }
+}
+/* Job pages, round 8: declining has its own block apart from the bar that adds the track, and another track to use is offered in the banner that names it. */
+.decline { margin: 18px 0 12px; padding: 12px 0 0; border-top: 1px solid var(--field-line); }
+.decline h3 { margin: 0 0 4px; font-size: 1rem; }
+.decline p { margin: 0 0 8px; }
+/* Clips: hear the filters on an excerpt before choosing one. */
+.clips { margin: 18px 0 0; }
+.clip-filters { border: 0; margin: 8px 0 12px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 24px; }
+.clip-filters legend { padding: 0; margin: 0 0 6px; color: var(--muted); font-size: var(--small); }
+.clip-list { margin-top: 12px; }
+.clip-acts { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-top: 4px; }
+.found-by { margin: 4px 0 0; }
+.alternatives { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.alternatives li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.alternatives li span { flex: 1 1 320px; }
+
+/* The redesigned flow: structure only. Colours and spacing come from the rules above. */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+h2.inline { display: inline; }
+.film-part { margin-top: 2rem; }
+.film-head .actions { margin-top: .75rem; }
+.work-head form.inline, .activity form.inline { margin-left: .5rem; }
+.filter-list, .track-list, .history, .activity, ol.wizard { list-style: none; padding: 0; }
+.filter-list > li, .track-list > li, .history > li, .activity > li { margin: 0 0 1.25rem; }
+.filter-list > li { display: grid; gap: .5rem 1.5rem; }
+@media (min-width: 900px) {
+  .filter-list > li { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
+  .filter-list.choose > li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .filter-list.choose > li .filter-curve { grid-column: 2; grid-row: 1 / span 2; }
+}
+.filter-list h3 { margin: 0 0 .25rem; }
+label.pick { display: flex; gap: .5rem; align-items: flex-start; cursor: pointer; margin: .25rem 0; }
+ol.wizard > li.step { margin: 0 0 1.5rem; }
+ol.wizard > li.step:not(.open) h2 { margin-bottom: .25rem; }
+ol.wizard > li.step.open { border-left: 3px solid currentColor; padding-left: 1rem; }
+ol.wizard .summary { margin-top: 0; }
+.step-n { opacity: .6; }
+svg.profile { width: 100%; height: 80px; display: block; }
+svg.profile rect { fill: currentColor; opacity: .55; cursor: pointer; }
+svg.profile rect:hover { opacity: 1; }
+.lib-filter { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: flex-end; }
+.lib-filter fieldset { margin: 0; padding: .25rem .5rem; }
+.lib-filter p { margin: 0; }
+.library td.num, .library th.num { text-align: right; }
+
+.activity-panel { border: 2px solid var(--prog-edge); background: var(--prog-bg); border-radius: 8px;
+                  padding: 4px 16px 8px; }
+.activity-panel h2 { color: var(--prog-fg); }
+.activity-panel .work { padding: 8px 0; }
+.activity-panel .work + .work { border-top: 1px solid var(--prog-edge); }
+.activity-panel .meter { height: 10px; }
+.work-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
+.work-head .work-cancel { margin-left: auto; }
+
+.clip-window { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.clip-window input#start { width: 7.5em; }
+.clip-window input#seconds { width: 5em; }
+.profile-chart { margin: 8px 0 16px; }
+.profile-track { position: relative; cursor: pointer; touch-action: none; }
+.clip-box { position: absolute; top: 0; bottom: 0; min-width: 6px; border: 2px solid var(--accent-fill);
+            background: var(--tint); border-radius: 3px; cursor: grab; box-sizing: border-box; }
+.clip-box:active { cursor: grabbing; }
+
+/* The Library: a filter bar over a sortable, paged table; cards on a phone. */
+.filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 8px 0 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; gap: 6px; align-items: center; padding: 4px 12px; border-radius: 999px;
+        border: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: var(--small); }
+.chip:hover { background: var(--hover); }
+.chip.on { border-color: var(--accent-fill); background: var(--tint); }
+.chip-n { color: var(--muted); }
+.menus { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.menus select { font-size: var(--small); }
+.search-box input { width: 18em; max-width: 100%; }
+.lib-active { margin: 0 0 8px; color: var(--muted); font-size: var(--small); }
+table.lib-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+                  border-radius: 8px; overflow: hidden; }
+.lib-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: var(--small); padding: 8px 10px;
+                border-bottom: 1px solid var(--line); }
+.lib-table th a { color: inherit; text-decoration: none; }
+.lib-table th[aria-sort] a { color: var(--text); font-weight: 600; }
+.lib-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.lib-table tr:last-child td { border-bottom: 0; }
+.lib-table tbody tr:hover { background: var(--hover); }
+.lib-table th.pick, .lib-table td.pick { width: 2em; }
+.lib-table .lib-path { color: var(--muted); font-size: var(--small); overflow-wrap: anywhere; }
+.lib-table td.row-act { text-align: right; white-space: nowrap; }
+.lib-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px;
+            margin-top: 8px; }
+.lib-foot .bulk { margin: 0; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: var(--small); }
+.pager a { text-decoration: none; font-size: 1.2em; padding: 0 4px; }
+.sort-select { display: none; align-items: center; gap: 8px; margin: 0 0 8px; }
+@media (max-width: 960px) {
+  .menus { margin-left: 0; }
+  .search-box, .search-box input { width: 100%; }
+  .sort-select { display: flex; flex-wrap: wrap; }
+  .lib-table thead { display: none; }
+  table.lib-table { background: none; border: 0; }
+  .lib-table, .lib-table tbody, .lib-table tr, .lib-table td { display: block; width: auto; }
+  .lib-table tr { position: relative; border: 1px solid var(--line); border-radius: 8px; margin: 0 0 10px;
+                  padding: 8px 12px 8px 40px; background: var(--panel); }
+  .lib-table td { border: 0; padding: 3px 0; }
+  .lib-table td.pick { position: absolute; left: 10px; top: 10px; width: auto; padding: 0; }
+  .lib-table td.film { font-weight: 600; padding-bottom: 6px; }
+  .lib-table td[data-label] { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 8px;
+                              align-items: start; text-align: left; }
+  .lib-table td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: var(--small); }
+  .lib-table td.row-act { text-align: left; padding-top: 6px; }
+}
+.lib-table th { white-space: nowrap; }
+.lib-table td.film .lib-path { font-weight: 400; }
+@media (max-width: 960px) {
+  .lib-table td[data-label] > .v { min-width: 0; }
+  .lib-table td.row-act a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+.work-head .work-cancel form.inline { display: inline; margin: 0; }
+.filter-list > li { align-content: start; align-items: start; }
+
+.recommend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.rec-mark { position: absolute; top: 0; bottom: 0; min-width: 6px; border: 2px dashed var(--muted);
+            border-radius: 3px; box-sizing: border-box; pointer-events: none; }
+
+/* How a piece of work stands or ended, by the tone of its badge. Plain keeps the neutral badge. */
+.badge.o-good { color: var(--good-fg); background: var(--good-bg); border-color: var(--good-edge); }
+.badge.o-bad { color: var(--bad-fg); background: var(--bad-bg); border-color: var(--bad-edge); }
+.badge.o-prog { color: var(--prog-fg); background: var(--prog-bg); border-color: var(--prog-edge); }
+/* The Activity log: every row's work, badge, time and Cancel sit in the same columns. */
+.act-jump { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0 0 8px; font-size: var(--small); }
+.act-head { display: grid; grid-template-columns: minmax(0, 1fr) 13em 11em 5em; gap: 4px 12px; align-items: center; margin: 0 0 6px; }
+.act-head .act-do { text-align: right; }
+.act-head form.inline { margin: 0; }
+@media (max-width: 700px) {
+  .act-head { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .act-head .act-what { grid-column: 1 / -1; }
+}
+.using { margin: 4px 0; }
+.settings-group { margin: 28px 0 -16px; }
+/* The wizard's Filter step: the low-end cutoff on one line, then the filters, then BEQ Forge,
+   then the step's button. BEQ Forge is its own form, so the order is set here. */
+.cutoff { margin: 0 0 12px; }
+.cutoff-modes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.cutoff-pair { display: inline-flex; align-items: center; gap: 6px 10px; }
+.cutoff p { margin: 4px 0 0; }
+#cutoff-custom { width: 5.5em; }
+li#filter.step.open { display: flex; flex-direction: column; }
+#filter-form { display: contents; }
+#filter-form > .actions { order: 2; }
+#forge { order: 1; margin: 0 0 8px; }
+.filter-list svg.resp { height: 200px; }
+.filter-list.choose svg.resp { height: 180px; }
+.lib-foot .bulk p { margin: 0; }
+#bulk-plan { margin: 6px 0 0; padding-left: 18px; }
+#bulk-plan:empty { display: none; }
+.chips { align-items: center; }
+
+/* The film page's filters: each curve sits beside its own filter's facts on a wide screen and
+   under its filter's name on a narrow one, and a rule parts one filter from the next. */
+.filter-name { margin: 0 0 .25rem; }
+.filter-group { margin: 1.25rem 0 .25rem; }
+.filter-list > li + li { border-top: 1px solid var(--line); padding-top: 1.25rem; }
+@media (min-width: 900px) {
+  .filter-list:not(.choose) > li { grid-template-rows: auto 1fr; }
+  .filter-list:not(.choose) > li > .filter-name, .filter-list:not(.choose) > li > .filter-facts { grid-column: 1; }
+  .filter-list:not(.choose) > li > .filter-curve { grid-column: 2; grid-row: 1 / span 2; }
+}
+.film-head .act-jump { margin: .75rem 0 0; }
+.act-own { margin: 0 0 1.25rem; }
+.act-own > .activity { margin-top: .75rem; }
+
+/* Filters side by side: one row a filter under the same headings, beside one chart that draws
+   the rows together. Each row's number and line are its curve's in the chart. On a narrow
+   screen each row is a card, and the chart sits under the list. */
+.compare { display: grid; gap: 8px 24px; margin: 0 0 12px; align-items: start; }
+@media (min-width: 1100px) { .compare { grid-template-columns: minmax(0, 1fr) 340px; } }
+.cmp th.fig { min-width: 150px; }
+.cmp td[data-label^="Last"], .cmp td[data-label="Designed"] { white-space: nowrap; }
+table.cmp { width: 100%; border-collapse: collapse; }
+.cmp th { text-align: left; font-weight: 600; font-size: var(--small); padding: 6px 12px 6px 0;
+          border-bottom: 1px solid var(--line); vertical-align: bottom; }
+.cmp th .gloss { display: block; font-weight: 400; color: var(--muted); font-size: 12px; line-height: 1.3; }
+.cmp td { padding: 8px 12px 8px 0; vertical-align: top; }
+.cmp tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+.cmp tr.cmp-do td { padding-top: 0; }
+.cmp td.pick, .cmp th.pick { width: 2em; }
+.cmp-n { white-space: nowrap; color: var(--muted); font-size: var(--small); }
+svg.resp.swatch { display: inline-block; width: 30px; height: 8px; margin: 0; vertical-align: middle; }
+.cmp-more { display: flex; flex-wrap: wrap; gap: 2px 16px; align-items: center; }
+.cmp-more details { margin: 0; }
+.cmp-more details[open] { flex-basis: 100%; }
+.compare .filter-curve svg.resp { height: 220px; margin: 0; }
+.cmp-gloss { display: none; margin: 0 0 8px; }
+/* Each filter's line has its own pattern as well as its own colour. */
+.resp .curve.c1 { stroke-dasharray: 9 4; } .resp .curve.c2 { stroke-dasharray: 2 4; }
+.resp .curve.c3 { stroke-dasharray: 12 4 2 4; } .resp .curve.c4 { stroke-dasharray: 5 5; }
+.resp .curve.c5 { stroke-dasharray: 14 3; } .resp .curve.c6 { stroke-dasharray: 2 2; }
+.resp .curve.c7 { stroke-dasharray: 9 3 2 3 2 3; }
+@media (max-width: 760px) {
+  .cmp thead { display: none; }
+  .cmp, .cmp tbody, .cmp tr, .cmp td { display: block; width: auto; }
+  .cmp tbody { position: relative; border: 1px solid var(--line); border-radius: 8px; margin: 0 0 10px;
+               padding: 10px 12px; background: var(--panel); }
+  .cmp td, .cmp tbody tr:last-child td { border: 0; padding: 3px 0; }
+  .cmp td[data-label] { display: grid; grid-template-columns: minmax(0, 8em) minmax(0, 1fr); gap: 8px; }
+  .cmp td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: var(--small); }
+  .cmp.choose tbody { padding-left: 44px; }
+  .cmp.choose td.pick { position: absolute; left: 12px; top: 12px; width: auto; padding: 0; }
+  .cmp-gloss { display: block; }
+}
+
+/* The film page's heading: what Add BEQ track leads to, above the buttons. */
+.next-step { margin: .75rem 0 0; }
+.film-head .next-step + .actions { margin-top: .5rem; }
+.track-list .track-facts { margin-left: 10px; }
+
+/* The choices a piece of work was started with, each under its own name. */
+dl.using { display: flex; flex-wrap: wrap; gap: 2px 22px; margin: 4px 0; }
+dl.using > div { display: flex; gap: 6px; min-width: 0; }
+dl.using dt { color: var(--muted); white-space: nowrap; }
+dl.using dd { margin: 0; }
+
+/* The wizard: a finished step's heading leads to it, and waiting for BEQ Forge keeps the way
+   back apart from the button that throws the design away. */
+.step-n { opacity: 1; color: var(--muted); }
+ol.wizard h2 a .step-n { color: inherit; }
+.designing { max-width: 85ch; }
+.wait-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 12px; }
+.wait-actions .work-cancel { margin-left: auto; }
+.wait-actions form.inline { margin: 0; }
+
+/* The clip's window: a labelled box over the bass chart, and a time axis under it. */
+.profile-chart { margin-top: 34px; }
+.clip-box { min-width: 12px; z-index: 1; }
+.clip-box::before { content: attr(data-label); position: absolute; bottom: calc(100% + 3px); left: 50%;
+                    transform: translateX(-50%); white-space: nowrap; background: var(--accent-fill);
+                    color: var(--accent-ink); font-size: 12px; font-weight: 600; line-height: 20px;
+                    padding: 0 7px; border-radius: 4px; }
+.clip-box[data-edge=start]::before { left: 0; transform: none; }
+.clip-box[data-edge=end]::before { left: auto; right: 0; transform: none; }
+.profile-axis { position: relative; height: 22px; border-top: 1px solid var(--field-line); overflow: hidden;
+                font-size: 12px; font-family: var(--mono); color: var(--muted); }
+.profile-axis span { position: absolute; top: 0; padding: 4px 0 0 4px; line-height: 14px;
+                     border-left: 1px solid var(--field-line); }
+
+/* Activity: work that has ended, one row each, with the same fields under the same headings.
+   A row's technical details open under it, across the row. On a narrow screen each row is a
+   card, and each field carries its heading. */
+.act-ended { margin: 0 0 1.25rem; }
+.act-cols, .act-row { display: grid; grid-template-columns: 12.5em minmax(0, 1.1fr) 12.5em minmax(0, 1.5fr) 10em 9.5em;
+                      gap: 2px 14px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); }
+.act-cols { border-top: 0; padding: 4px 0 6px; font-weight: 500; }
+.act-row .act-when { white-space: nowrap; }
+.act-row .act-more:has(details[open]) { grid-column: 1 / -1; }
+.act-row details.tech { margin: 0; }
+.act-own > .act-ended { margin-top: .5rem; }
+@media (max-width: 900px) {
+  .act-cols { display: none; }
+  .act-row { grid-template-columns: minmax(0, 1fr); }
+  .act-row > [data-label] { display: grid; grid-template-columns: 8em minmax(0, 1fr); gap: 8px; }
+  .act-row > [data-label]::before { content: attr(data-label); color: var(--muted); font-size: var(--small); }
+  .act-row .act-when { white-space: normal; }
+}
+
+/* Settings: the one setting in a box of its own, apart from status and upkeep. */
+.setting { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 2px 16px 6px; margin: 12px 0 0; }
+.cutoff-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 8px; }
+.cutoff-form #custom_hz { width: 5.5em; }
+.cutoff-form .saved { flex-basis: 100%; }
+h2.settings-group { margin: 36px 0 0; padding-top: 16px; border-top: 1px solid var(--line); }
+.settings-group ~ section > h3 { margin: 22px 0 8px; font-size: 16px; }
+.settings-lead { margin: 2px 0 8px; }
+
+/* The Library: one area narrows the list, each menu under the name of its column. */
+.filter-bar { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 12px; }
+.menu { display: inline-flex; align-items: center; gap: 6px; }
+.sort-mark { color: var(--muted); font-weight: 400; }
+.sort-mark.on { color: var(--text); font-weight: 600; }
+.row-failed { margin-top: 4px; }
+
+/* A phone's header is two rows: the name with Settings, then Library and Activity with its counts. */
+@media (max-width: 760px) {
+  .top nav { display: contents; }
+  .top::before { content: ""; order: 1; flex-basis: 100%; height: 0; }
+  .top nav a { order: 2; }
+  .top nav a[href="/settings"] { order: 0; margin-left: auto; }
+}
+@media (max-width: 480px) {
+  .top { column-gap: 4px; }
+  .top nav .count { font-size: 12px; }
+}
+
+/* The film page's heading: each BEQ track on a line beside the badge, with its filter and
+   what to do with the volume. */
+.has-beq { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: .75rem 0 0; }
+.has-beq ul { list-style: none; margin: 0; padding: 0; flex: 1 1 40ch; }
+.has-beq li + li { margin-top: 2px; }
+/* The latest result: one box in one place, a few lines tall whatever it holds. Its edge says
+   how the work ended. */
+.result-panel { border: 1px solid var(--neutral-edge); border-left-width: 4px; border-radius: 8px;
+                background: var(--panel); padding: 2px 16px 6px; }
+.result-panel.o-good { border-left-color: var(--ok); }
+.result-panel.o-bad { border-left-color: var(--bad); }
+.result-panel h2 { margin: 12px 0 6px; }
+.result-panel p { margin: 6px 0; }
+.charts.thumbs { grid-template-columns: repeat(2, minmax(0, 280px)); gap: 10px; }
+.clip-tracks { display: flex; flex-wrap: wrap; gap: 2px 22px; }
+.clip-tracks > span:first-child { color: var(--muted); }
+/* A level change with no figure yet: where its measurement stands, in the figure's column. */
+.level.pending { color: var(--muted); }
+/* The Library: what a rating rests on beside its badge, the rating's meaning under its
+   heading, room for a line of progress, and a Next step column that reads from the left
+   like the others. */
+.lib-table th .gloss { display: block; max-width: 30ch; font-weight: 400; font-size: 12px; line-height: 1.3; white-space: normal; }
+.rating-note { margin-left: 4px; }
+@media (min-width: 961px) {
+  .lib-table td[data-label="Candidate rating"] { white-space: nowrap; }
+  .lib-table td[data-label="Activity"] { min-width: 15.5em; }
+}
+.lib-table td.row-act { text-align: left; }
+.bulk-top { margin: 0 0 6px; }
+/* The filter table: a heading's explanation does not widen its column past its figures, so
+   the filter's name keeps its room. */
+.cmp th .gloss { max-width: 27ch; }
+.cmp th.fig.sure { min-width: 0; }
+.in-use-by { white-space: nowrap; }
+.forge-route { display: inline-block; }
+/* On a phone the label of a row of page links sits level with the links, which are taller to
+   be touched. */
+@media (max-width: 700px) {
+  .act-jump { align-items: center; gap: 0 20px; }
+}
+
+/* The header: the failed count is its own link to the Failed group of the Activity log. On a
+   phone the three pages sit together in one row under the app's name. */
+.top nav a.nav-failed { color: var(--bad-fg); font-size: 13px; padding-inline: 6px; margin-left: -4px;
+                        text-decoration: underline; }
+.top nav a.nav-failed[hidden] { display: none; }
+@media (max-width: 760px) {
+  .top nav a[href="/settings"] { order: 2; margin-left: 0; }
+}
+@media (max-width: 480px) {
+  .top nav a.nav-failed { font-size: 12px; }
+}
+
+/* The Library: Add BEQ track to selected by the select-all box, with what each ticked film
+   gets under it. */
+.bulk-top { margin: 0 0 8px; }
+.bulk-top p { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0; }
+.bulk-top #bulk-note { flex: 1 1 40ch; }
+.lib-table th .gloss { max-width: 44ch; }
+.lib-table td.row-act button { white-space: nowrap; }
+/* A phone's Library: the chips keep their own room, the three menus share one row, and a card
+   leaves out a count of none, an empty Activity and an empty Next step. */
+@media (max-width: 960px) {
+  .lib-table td.nil { display: none; }
+  .lib-table td.row-act { white-space: normal; }
+  .lib-active.plain { display: none; }
+}
+@media (max-width: 700px) {
+  .chips a.chip { margin-inline: 0; padding: 7px 12px; }
+  .filter-bar { gap: 8px; }
+  .menus { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 8px; width: 100%; }
+  .menus .search-box { grid-column: 1 / -1; }
+  .menu { flex-direction: column; align-items: stretch; gap: 0; min-width: 0; }
+  .menu select { width: 100%; min-width: 0; }
+  .lib-table td.row-act a { margin-inline: 0; padding-inline: 0; }
+}
+
+/* The film page's heading: what the bass check found, beside the rating's badge. */
+.rating-why { margin-right: 6px; }
+
+/* Audio tracks: every track in the same columns. On a narrow screen each track is a card, and
+   each field carries its heading. */
+table.tracks { width: 100%; border-collapse: collapse; margin: 0 0 12px; }
+.tracks th { text-align: left; font-weight: 600; font-size: var(--small); padding: 6px 20px 6px 0;
+             border-bottom: 1px solid var(--line); }
+.tracks td { padding: 8px 20px 8px 0; vertical-align: top; border-bottom: 1px solid var(--line); }
+.tracks td.trk { white-space: nowrap; }
+.tracks .tag { white-space: normal; }
+.tracks dl.kv { margin: 0 0 6px; }
+.tracks details { margin: 0 0 4px; }
+@media (max-width: 760px) {
+  .tracks thead { display: none; }
+  .tracks, .tracks tbody, .tracks tr, .tracks td { display: block; width: auto; }
+  .tracks tr { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 10px; padding: 10px 12px;
+               background: var(--panel); }
+  .tracks td { border: 0; padding: 3px 0; }
+  .tracks td.trk { white-space: normal; }
+  .tracks td[data-label] { display: grid; grid-template-columns: minmax(0, 6em) minmax(0, 1fr); gap: 8px; }
+  .tracks td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: var(--small); }
+  .tracks td[data-label] > .v { min-width: 0; }
+}
+
+/* The wizard's Filter step: the filters, then the low-end cutoff they follow, then BEQ Forge,
+   then the step's button. The cutoff is one menu, and its Custom entry shows the Hz box. */
+.cutoff { margin: 4px 0 12px; }
+#custom-wrap[hidden] { display: none; }
+.designing .wait-actions .work-cancel { margin-left: 0; }
+
+/* The clip's window: the timeline keeps room over it for the clip's label, and on a narrow
+   screen it scrolls sideways, so that the clip's box is wide enough to drag. */
+.profile-chart { margin-top: 6px; }
+.profile-scroll { overflow-x: auto; padding-top: 28px; }
+.profile-track { touch-action: pan-x pan-y; }
+.clip-box { touch-action: none; min-width: 14px; }
+@media (max-width: 760px) {
+  .profile-wide { min-width: 680px; }
+}
+
+/* Activity: a finished row's badge with what the work left under it, then the audio track and
+   the filter it used. */
+.act-cols, .act-row { grid-template-columns: 11.5em minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1.6fr) 9.5em 9.5em; }
+@media (max-width: 900px) {
+  .act-row { grid-template-columns: minmax(0, 1fr); }
+  .act-row > [data-label] > .v { min-width: 0; }
+}
+
+/* Settings: every part under a heading of its own, and the Unknown ratings as a short list. */
+ul.counts { list-style: none; margin: 0 0 4px; padding: 0; }
+#scan > h3 { margin: 18px 0 6px; }
+#scan > details.tech { margin: -8px 0 12px; }
+
+/* The Library's Next step wraps inside its column, so the table keeps to the page's width. */
+.lib-table td.row-act { white-space: normal; }
+/* On a wide screen the rating's note wraps under its badge before it squeezes the Next step. */
+@media (min-width: 961px) {
+  .lib-table td[data-label="Candidate rating"] { white-space: normal; }
+  .lib-table td.row-act { min-width: 11.5em; }
+}
+/* A phone's cards: a link is taller to be touched, so its label sits level with it, and a row
+   of page links keeps its lines close. */
+@media (max-width: 960px) {
+  .lib-table td.num[data-label], .lib-table td.row-act { align-items: center; }
+  .act-row > [data-label="Film"] { align-items: center; }
+}
+@media (max-width: 700px) {
+  main .act-jump a { padding-block: 9px; }
+}
+
+/* The Library: what the rating means, once, under the chips, so the column heading stays one
+   line. The search box has its label, as the menus do. A rating's figure stays on its line,
+   and a row with no step says why in the Next step column. */
+.bar-gloss { flex-basis: 100%; margin: 0; }
+.search-box { display: inline-flex; align-items: center; gap: 6px; }
+@media (min-width: 961px) {
+  .lib-table td[data-label="Candidate rating"] { white-space: nowrap; }
+}
+@media (max-width: 960px) {
+  .search-box { display: flex; }
+  .search-box input { flex: 1 1 auto; width: auto; min-width: 0; }
+}
+@media (max-width: 700px) {
+  .bar-gloss { display: none; }
+}
+
+/* The filter table: the filter's name gets the room the figures do not need. The filters made
+   for another track or mix fold away under their heading. */
+.cmp th.cmp-filter { width: 40%; }
+.other-filters > summary h3 { display: inline; }
+.other-filters { margin: 1rem 0 0; }
+.other-filters > summary .filter-group { margin: 0; }
+.other-filters[open] > summary { margin-bottom: .25rem; }
+
+/* The film page: a result's charts are thumbnails, and the work under way keeps to a few
+   lines, so the filters start higher. */
+.charts.thumbs { grid-template-columns: repeat(2, minmax(0, 200px)); }
+.activity-panel h2 { margin: 12px 0 4px; }
+.work-head .work-cancel { display: inline-flex; align-items: center; gap: 12px; }
+.tracks details { margin: 2px 0 0; }
+
+/* Activity: a finished row's badge and its result in columns of their own, then the audio
+   track and the filter. */
+.act-cols, .act-row { grid-template-columns: 10.5em minmax(0, 1fr) 11em 10em minmax(0, 1.6fr) 9em 9.5em; }
+@media (max-width: 900px) {
+  .act-row { grid-template-columns: minmax(0, 1fr); }
+}

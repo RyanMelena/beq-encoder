@@ -157,3 +157,18 @@ def test_a_chart_failure_never_fails_the_beq_track(env, monkeypatch):
     assert result["charts"] is None and result["track_name"]
     assert "no charts for this BEQ track: no fonts today" in (tmp / "job.log").read_text()
     assert not [a for a in _attachments(path) if a["file_name"].startswith("beq-")]
+
+
+def test_the_charts_name_the_floor_beside_the_filters_they_describe():
+    bands = [{"type": "LowShelf", "freq": 20.0, "gain": 12.0, "q": 0.7, "count": 1}]
+    info = charts.ChartInfo(title="T", source_track="s", beq_track="b", beq_source="c",
+                            filters=bands, highpass_hz=15.0)
+    facts = dict(charts._facts(info))
+    assert facts["High-pass floor"] == "15 Hz, Butterworth, order 4 (24 dB/octave)"
+    # the largest change is the BEQ's own: the floor's cut is not the filter's lift
+    assert facts["Largest BEQ change"].startswith("+12.0 dB")
+    assert charts._filter_summary(bands, 15.0).endswith(
+        "; high-pass floor 15 Hz, Butterworth, order 4 (24 dB/octave)")
+    assert "High-pass floor" not in dict(charts._facts(
+        charts.ChartInfo(title="T", source_track="s", beq_track="b", beq_source="c",
+                         filters=bands)))

@@ -28,7 +28,7 @@ import numpy as np
 
 
 from . import caf
-from .biquad import FilterSpec, design_sos, sosfilt_channels
+from .biquad import FilterSpec, check_highpass, design_sos, sosfilt_channels
 from .workers import abs_peak
 
 CHUNK_FRAMES = 1 << 18  # 262144 frames; ~12 MB of 16-ch 24-bit audio
@@ -48,6 +48,15 @@ class FilterJob:
     target_peak_dbfs: float = -1.0
     fixed_gain_db: float | None = None
     dither: bool = True
+    # When the source is an excerpt (a clip): the filtered peak of the whole programme it
+    # comes from, so the excerpt gets the gain the whole would (see filter_stream)
+    programme_peak_dbfs: float | None = None
+    highpass_hz: float = 0.0  # the high-pass floor below the BEQ (biquad.highpass_rows); 0: none
+
+    def sos(self, fs: float) -> np.ndarray:
+        """The whole cascade at `fs`: the BEQ, then the floor. What the filter pass runs
+        and what every check of its output must run too."""
+        return design_sos(self.filters, fs, self.highpass_hz)
 
     @classmethod
     def load(cls, path: str) -> FilterJob:
@@ -60,6 +69,7 @@ class FilterJob:
                 None if d.get("fixed_gain_db") is None else float(d["fixed_gain_db"])
             ),
             dither=bool(d.get("dither", True)),
+            highpass_hz=check_highpass(d.get("highpass_hz") or 0.0),
         )
 
 
@@ -87,11 +97,14 @@ def rounded_dbfs(peak: float | None) -> float | None:
 def filter_stream(read: ReadBlocks, write: WriteBlock, sos: np.ndarray, channels: int,
                   target_peak_dbfs: float, fixed_gain_db: float | None = None,
                   dither_lsb: float | None = None, write_stage: str = WRITE_STAGE,
-                  rng: np.random.Generator | None = None) -> FilterResult:
+                  rng: np.random.Generator | None = None,
+                  programme_peak_dbfs: float | None = None) -> FilterResult:
     """The BEQ of one programme: measure, derive the gain, refilter, dither, hand to `write`.
 
     `dither_lsb` is the size of one quantisation step (TPDF dither of +/-1 LSB), or None
-    for no dither."""
+    for no dither. `programme_peak_dbfs`: the source is an excerpt of a programme whose
+    filtered peak is this, and the automatic gain fits the louder of it and the excerpt's
+    own, so the excerpt plays at the level the whole programme would, and never clips."""
     def zi() -> np.ndarray:
         return np.zeros((sos.shape[0], 2, channels))
 
@@ -106,6 +119,8 @@ def filter_stream(read: ReadBlocks, write: WriteBlock, sos: np.ndarray, channels
             y, state = sosfilt_channels(sos, x, state)
             peak = max(peak, abs_peak(y))
         peak_filtered = peak
+        if programme_peak_dbfs is not None:
+            peak = max(peak, 10 ** (programme_peak_dbfs / 20))
         gain_db = min(0.0, target_peak_dbfs - dbfs(peak)) if peak > 0 else 0.0
     else:
         gain_db = fixed_gain_db
@@ -172,7 +187,7 @@ def apply(path: str, job: FilterJob, progress: ProgressFn | None = None,
     `out_path` (same header and layout), leaving the source untouched."""
     t0 = time.monotonic()
     info = caf.read_info(path)
-    sos = design_sos(job.filters, info.sample_rate)
+    sos = job.sos(info.sample_rate)
     if out_path is not None:
         with open(path, "rb") as src, open(out_path, "wb") as dst:
             dst.write(src.read(info.data_offset))  # header, chunks, data chunk start
@@ -188,7 +203,8 @@ def apply(path: str, job: FilterJob, progress: ProgressFn | None = None,
             return clipped
 
         res = filter_stream(_caf_blocks(path, info, progress), write, sos, info.channels,
-                            job.target_peak_dbfs, job.fixed_gain_db, dither)
+                            job.target_peak_dbfs, job.fixed_gain_db, dither,
+                            programme_peak_dbfs=job.programme_peak_dbfs)
         out.flush()
         if out_path is None:  # a new file is working data; only in place is this the original
             os.fsync(out.fileno())

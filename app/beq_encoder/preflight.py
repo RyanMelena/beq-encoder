@@ -5,6 +5,10 @@ target peak (beqfilter.filter_stream). BEQ filters act on the bass only, so the 
 filters designed at the analysis rate, run over the analysis' channels, give about the
 peak that pass will measure. Content above FS/2 is not in the analysis, and for Atmos the
 analysis is the channel presentation while the encode filters the objects.
+
+The high-pass floor is part of the cascade the encode runs, so it is part of the estimate:
+a floor that removes infrasonic content a filter lifts lowers the filtered peak, and with
+it how far the track is turned down.
 """
 
 from __future__ import annotations
@@ -21,10 +25,11 @@ MAX_BAND_HZ = 0.4 * analysis.FS  # a band this high is beyond what a design at F
 
 
 def predict(blocks: Iterable[np.ndarray], channels: Sequence[str],
-            filters: Mapping[str, list[dict]]) -> dict[str, dict]:
-    """{digest: {"peak_dbfs", "channel"}}: the highest filtered channel peak of each filter
-    over `blocks` (frames, channels) at analysis.FS, in one pass. A filter with no bands,
-    a band FilterSpec rejects or one at MAX_BAND_HZ or above gets no entry, nor does silence."""
+            filters: Mapping[str, list[dict]], highpass_hz: float = 0.0) -> dict[str, dict]:
+    """{digest: {"peak_dbfs", "channel"}}: the highest filtered channel peak of each filter,
+    followed by the floor at `highpass_hz` (0: none), over `blocks` (frames, channels) at
+    analysis.FS, in one pass. A filter with no bands, a band FilterSpec rejects or one at
+    MAX_BAND_HZ or above gets no entry, nor does silence."""
     sos = {}
     for digest, bands in filters.items():
         try:
@@ -32,7 +37,7 @@ def predict(blocks: Iterable[np.ndarray], channels: Sequence[str],
         except (KeyError, ValueError):
             continue
         if specs and all(s.freq < MAX_BAND_HZ for s in specs):
-            sos[digest] = design_sos(specs, analysis.FS)
+            sos[digest] = design_sos(specs, analysis.FS, highpass_hz)
     state = {d: np.zeros((len(s), 2, len(channels))) for d, s in sos.items()}
     peaks = {d: np.zeros(len(channels)) for d in sos}
     for x in blocks:

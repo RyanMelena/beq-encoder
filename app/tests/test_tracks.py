@@ -145,6 +145,13 @@ def test_pick_best_tiers_and_tiebreaks():
     assert media.pick_best([beq, a]).track_id == 7  # an existing BEQ track is not a source
 
 
+def test_a_forced_flag_does_not_stop_a_track_being_the_best():
+    """Matroska defines the forced flag for subtitles; remuxes set it on main audio tracks too
+    (Ready Player One's TrueHD Atmos track)."""
+    forced, dts = _t(1, "truehd_atmos", 8, forced=True), _t(2, "dtshd_ma", 8)
+    assert media.pick_best([forced, dts]).track_id == 1
+
+
 @pytest.mark.parametrize("name,kind,label", [
     ("dts51", "dtshd_ma", "5.1"), ("lpcm20", "pcm", "2.0"), ("ac351", "ac3", "5.1")])
 def test_probe_classifies_and_skips_commentary(env, name, kind, label):
@@ -183,7 +190,7 @@ def test_non_atmos_to_flac(env, name, expect):
     result, stages = _run(s, path, _encode(before), tmp)
     after = media.probe(str(path))
     assert [a.name for a in after.audio][:2] == [before.audio[0].name,
-                                                beq_name(expect, "tester", result)]
+                                                beq_name(expect, result)]
     beq = after.audio[1]
     assert beq.kind == "flac" and beq.channels == before.audio[0].channels
     assert beq.layout == before.audio[0].layout and not beq.default
@@ -231,7 +238,7 @@ def test_dts_to_channel_based_truehd_via_dee(env):
     pr = media.probe(str(path))
     result, _ = _run(s, path, _encode(pr, format="truehd"), tmp)
     after = media.probe(str(path))
-    assert after.audio[1].name == beq_name("TrueHD 5.1", "tester", result)
+    assert after.audio[1].name == beq_name("TrueHD 5.1", result)
     assert "TrueHD" in after.audio[1].codec
     args = _dee_args(tmp)
     shim, dee_args = _pairs(args[:args.index("--")]), _pairs(args[args.index("--") + 1:])
@@ -366,7 +373,7 @@ def test_ddp_atmos_to_truehd_atmos_via_cavern(joc):
     assert pr.best.kind == "eac3_joc" and support_plan(pr.best).route == "joc"
     result, stages = _run(s, path, _encode(pr, format="truehd"), tmp)
     after = media.probe(str(path))
-    assert after.audio[1].name == beq_name("TrueHD Atmos", "tester", result)
+    assert after.audio[1].name == beq_name("TrueHD Atmos", result)
     assert after.audio[1].beq
     fid = result["filter_report"]["fidelity"]
     assert fid["ok"] and fid["method"] == ("objects decoded by Cavern, encoded sample-exact "
@@ -627,25 +634,19 @@ def fake_designer(env, monkeypatch):
     fd.close()
 
 
-def test_prepare_uses_catalogue_and_ends_no_beq_for_a_no_filter_entry(env, cat, fake_designer):
-    s, place, tmp = env
-    path = place("dts51")
-    r, _ = _run(s, path, {"phase": "prepare"}, tmp, cat)
-    assert r["outcome"] == "no_beq" and "does not need BEQ" in r["message"]
-    assert r["track"]["kind"] == "dtshd_ma" and r["design"] is None
-    assert not fake_designer.requests
-
-
-def test_prepare_designs_by_reference_when_the_track_has_no_entry(env, cat, fake_designer):
+def test_a_design_is_made_by_reference_and_measured_at_each_cutoff(env, cat, fake_designer):
     s, place, tmp = env
     path = place("lpcm20")
-    r, stages = _run(s, path, {"phase": "prepare"}, tmp, cat)
-    assert r["outcome"] == "awaiting" and r["design"]["candidates"]
+    r, stages = _run(s, path, {"phase": "design", "track_id": 1, "cutoffs": [0.0, 15.0]}, tmp,
+                     cat)
+    assert r["phase"] == "design" and not r["design"]["declined"]
     c = r["design"]["candidates"][0]
     assert c["label"] == "beqforge 9.9.9 flatten" and c["gain_reduction_db"] == -5.9
     assert c["filters"][0] == {"type": "LowShelf", "freq": 24.19, "gain": 15.6, "q": 1.972,
                                "count": 1}
     assert r["design"]["rejected"][0]["rejection_reasons"] == ["introduces a cliff"]
+    assert set(r["levels"]) == {"0", "15"} and c["digest"] in r["levels"]["15"]
+    assert r["levels"]["15"][c["digest"]]["peak_dbfs"] <= r["levels"]["0"][c["digest"]]["peak_dbfs"]
     body = fake_designer.requests[0]
     assert body["contract_version"] == "1.2" and body["coverage"] == "complete_programme"
     assert list(body["channels"]) == ["L", "R"] and body["fs"] == 1000
@@ -654,18 +655,15 @@ def test_prepare_designs_by_reference_when_the_track_has_no_entry(env, cat, fake
     mono = ch["L"] * analysis.MAIN_GAIN + ch["R"] * analysis.MAIN_GAIN
     assert np.allclose(ch["mono_mix"], mono)
     assert abs(len(ch["L"]) - 16000) < 100
-    # cached: a second prepare does not decode again
-    _run(s, path, {"phase": "prepare"}, tmp, cat)
+    # cached: a second design does not decode again
+    _run(s, path, {"phase": "design", "track_id": 1}, tmp, cat)
     assert "Analysis: cached" in (tmp / "job.log").read_text()
     assert len(fake_designer.requests) == 2
 
 
-def test_prepare_lfe_weighting_in_51(env, cat, fake_designer):
+def test_a_design_weights_the_lfe_in_51(env, cat, fake_designer):
     s, place, tmp = env
-    path = place("ac351")
-    # the AC-3 track's only exact entry is the no-filters one, so force the designer
-    r, _ = _run(s, path, {"phase": "prepare", "force_designer": True}, tmp, cat)
-    assert r["outcome"] == "awaiting"
+    _run(s, place("ac351"), {"phase": "design", "track_id": 1}, tmp, cat)
     body = fake_designer.requests[0]
     assert list(body["channels"]) == ["L", "R", "C", "LFE", "Ls", "Rs"]
     ch = fake_designer.checked
@@ -674,36 +672,23 @@ def test_prepare_lfe_weighting_in_51(env, cat, fake_designer):
     assert np.allclose(ch["mono_mix"], mono)
 
 
-def test_prepare_refuses_to_guess_when_the_catalogue_has_not_loaded(env, fake_designer, tmp_path):
+def test_a_measurement_covers_every_filter_and_cutoff_and_fails_when_it_cannot(env, tmp_path):
     s, place, tmp = env
-    unloaded = catalogue.Catalogue(tmp_path / "none.json", "", 9999)
-    with pytest.raises(JobFailed, match="catalogue is not loaded"):
-        _run(s, place("lpcm20"), {"phase": "prepare"}, tmp, unloaded)
-    assert not fake_designer.requests
-    r, _ = _run(s, place("lpcm20"), {"phase": "prepare", "force_designer": True}, tmp, unloaded)
-    assert r["outcome"] == "awaiting" and len(fake_designer.requests) == 1
-
-
-def test_prepare_estimates_every_catalogue_filter_and_never_fails_for_it(env, fake_designer,
-                                                                          tmp_path):
-    s, place, tmp = env
-    lpcm = {**CAT[0], "audioTypes": ["LPCM 2.0"], "author": "a4", "digest": "lpcm20"}
-    p = tmp_path / "with-lpcm.json"
-    p.write_text(json.dumps([*CAT, lpcm]))
-    cat = catalogue.Catalogue(p, "", 9999)
-    cat.load()
+    entries = [{"digest": c["digest"], "label": c["author"], "filters": c["filters"]}
+               for c in CAT if c["filters"]]
+    params = {"phase": "measure", "track_id": 1, "filters": entries, "cutoffs": [0.0, 10.0]}
     path = place("lpcm20")
-    ffmpeg = s.ffmpeg
-    s.ffmpeg = str(_exe(tmp_path / "ffmpeg", "#!/bin/sh\necho 'no decoder' >&2\nexit 1\n"))
-    r, _ = _run(s, path, {"phase": "prepare"}, tmp, cat)
-    assert r["outcome"] == "awaiting" and r["predicted"] == {}
-    assert "Gain estimate: not made" in (tmp / "job.log").read_text()
-    s.ffmpeg = ffmpeg
-    r, stages = _run(s, path, {"phase": "prepare"}, tmp, cat)
-    assert r["outcome"] == "awaiting" and r["design"] is None and not fake_designer.requests
-    assert set(r["predicted"]) == {"lpcm20", "atmos1", "ddpa"}  # exact, related and other
-    assert r["predicted"]["lpcm20"]["channel"] in ("L", "R")
+    r, stages = _run(s, path, params, tmp, None)
+    assert set(r["levels"]) == {"0", "10"}
+    assert set(r["levels"]["0"]) == {"atmos1", "ddpa"}
+    assert r["levels"]["0"]["atmos1"]["channel"] in ("L", "R")
+    assert r["profile"]["bucket_s"] > 0 and r["profile"]["db"]
     assert ("Estimating the gain of each filter", 100.0) in stages
+    s.ffmpeg = str(_exe(tmp_path / "ffmpeg", "#!/bin/sh\necho 'no decoder' >&2\nexit 1\n"))
+    for key in list((s.work_dir / "analysis").glob("*")):
+        shutil.rmtree(key)
+    with pytest.raises(JobFailed):
+        _run(s, path, params, tmp, None)
 
 
 def _cached_analysis(root, key, mtime):
@@ -726,18 +711,19 @@ def test_analysis_eviction_goes_by_last_use_and_spares_what_a_job_claims(tmp_pat
     assert left == {"used-lately", "claimed"}
 
 
-def test_designer_decline_is_no_beq_not_failure(env, cat, fake_designer):
+def test_a_designer_decline_is_a_finished_design_with_no_filter(env, cat, fake_designer):
     s, place, tmp = env
     fake_designer.mode = "decline"
-    r, _ = _run(s, place("lpcm20"), {"phase": "prepare"}, tmp, cat)
-    assert r["outcome"] == "no_beq" and "within_goal_tolerance" in r["message"]
+    r, _ = _run(s, place("lpcm20"), {"phase": "design", "track_id": 1}, tmp, cat)
+    assert r["design"]["declined"] and r["design"]["decline_reason"] == "within_goal_tolerance"
+    assert r["levels"] == {}
 
 
-def test_designer_unreachable_fails_the_prepare(env, cat):
+def test_an_unreachable_designer_fails_the_design(env, cat):
     s, place, tmp = env
     s.designer_url = "http://127.0.0.1:9"
     with pytest.raises(JobFailed, match="not reachable"):
-        _run(s, place("lpcm20"), {"phase": "prepare"}, tmp, cat)
+        _run(s, place("lpcm20"), {"phase": "design", "track_id": 1}, tmp, cat)
 
 
 # -- the support rules ---------------------------------------------------------------
@@ -788,12 +774,12 @@ def test_support_plan_rules(monkeypatch, tmp_path):
     assert support.formats(_t(0, "ac3", 6, layout="5.1(side)"), True) == ["truehd", "flac"]
 
 
-def test_prepare_ends_unsupported_for_object_tracks(env, cat, fake_designer, monkeypatch):
+def test_a_design_for_an_object_track_is_refused(env, cat, fake_designer, monkeypatch):
     s, place, tmp = env
     path = place("dts51")
     monkeypatch.setattr(media, "classify", lambda *a: "dtsx" if "dts" in a[1] else "ac3")
-    r, _ = _run(s, path, {"phase": "prepare"}, tmp, cat)
-    assert r["outcome"] == "unsupported" and "objects" in r["message"]
+    with pytest.raises(JobFailed, match="objects"):
+        _run(s, path, {"phase": "design", "track_id": 1}, tmp, cat)
     assert not fake_designer.requests
 
 

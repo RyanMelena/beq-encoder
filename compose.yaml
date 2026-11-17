@@ -45,22 +45,26 @@ services:
       MEDIA_ROOTS: /media/movies             # colon-separated list of mounted roots
       DESIGNER_URL: http://beqforge-designer:8420
       TARGET_PEAK_DBFS: "-1.0"               # auto gain keeps the filtered peak at/below this
+      # BEQ_HIGHPASS_HZ: "0"                 # high-pass floor a job starts with (e.g. port tuning); 0 = none
       MAX_CONCURRENT_JOBS: "1"
       # BM_CROSSOVER_HZ: "80"                # sub feed model sent to the designer (0 = none)
       # BM_LPF_POSITION: Before
       # BM_HEADROOM: WCS
       # ANALYSIS_CACHE_GB: "20"              # 1 kHz analyses kept under /work/analysis
-      # TRACK_NAME_TEMPLATE: "BEQ [{gain}] {codec} ({source})"   # {orig} {codec} {source} {author} {gain}
+      # TRACK_NAME_TEMPLATE: "BEQ [{gain}] {codec}"   # {orig} {codec} {source} {author} {gain} {highpass}; cut to 40 characters
       # BEQ_TRACK_DEFAULT: "false"
       # KEEP_WORK: "false"                   # keep DAMF/WAV/MLP intermediates for debugging
       # SCAN_INTERVAL_HOURS: "24"            # scheduled library scan (start-up scan too)
       # WATCH: inotify                       # new files in a local bind mount: inotify | poll | off
       # ASSESS_AUDIO: "true"                 # background roll-off screen of films without BEQ
+      # CLIP_DIR: /clips                     # where clips go (default /work/clips); outside MEDIA_ROOTS
+      # CLIP_SECONDS: "30"                   # a clip's length unless set when it is made
     volumes:
       - ${DEE_PATH:?set DEE_PATH in .env}:/opt/dee:ro   # DEE 6.7 with the dthd-mac2linux dee_dthd_encoder
       - ./config:/config                     # sqlite db, logs, catalogue cache
       - ${WORK_DIR}:/work                    # DAMF/WAV intermediates + analyses (fast local disk)
       - ${MEDIA_DIR:?set MEDIA_DIR in .env}:/media/movies   # read-write: files are replaced in place
+      # - /path/to/clips:/clips              # clips, to play on another device (with CLIP_DIR: /clips)
     # The UI has no login and can rewrite media files: publish it only on a trusted
     # network, or put it behind a reverse proxy that restricts access.
     ports:
