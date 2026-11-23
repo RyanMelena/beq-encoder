@@ -14,8 +14,8 @@ ARG BASE_IMAGE=debian:trixie-slim
 # The dee_shim release built into the image, the commit its tag points at, and the Rust
 # toolchain that release is built with (RUST_TOOLCHAIN in its release workflow).
 # .github/workflows/tooling-updates.yml opens a PR when a newer release is out.
-ARG DEE_SHIM_VERSION=v0.2.0
-ARG DEE_SHIM_COMMIT=396caf4980cd878faead7f028e58300b026d6d71
+ARG DEE_SHIM_VERSION=v0.3.0
+ARG DEE_SHIM_COMMIT=2ae7f950a65124261a7df99964b21246067f1607
 ARG DEE_SHIM_RUST=1.97.1
 # The truehdd release, and a later commit to build from source in its place ("" for the
 # release). The commit is pinned only until a release includes it: tooling-updates.yml opens
